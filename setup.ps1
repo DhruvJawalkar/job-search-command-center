@@ -89,4 +89,8 @@ Write-Host 'Setup complete.' -ForegroundColor Green
 Write-Host "Workspace folder: $ProjectFolder"
 Write-Host 'App: http://127.0.0.1:3000'
 Write-Host 'API health: http://127.0.0.1:8080/actuator/health'
-Write-Host 'In the Codex project chat, ask: “Review README.md and docs/CODEX_ONBOARDING.md, open my local Job Search Command Center at http://127.0.0.1:3000 in a browser tab, and guide me through the first useful outcome.”'
+Write-Host ''
+Write-Host 'Next in Codex:' -ForegroundColor Cyan
+Write-Host '  1. Return to the Job Search Command Center project chat.'
+Write-Host '  2. Open a Browser tab in the right-side panel and enter http://127.0.0.1:3000.'
+Write-Host '  3. Ask: “Review README.md and docs/CODEX_ONBOARDING.md, use the open portal tab, and guide me through the first useful outcome.”'

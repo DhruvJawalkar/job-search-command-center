@@ -80,4 +80,7 @@ docker compose --project-name job-search-command-center --env-file "$ENV_FILE" -
 printf '\nSetup complete.\n'
 printf 'Workspace folder: %s\n' "$PROJECT_FOLDER"
 printf '%s\n' 'App: http://127.0.0.1:3000' 'API health: http://127.0.0.1:8080/actuator/health'
-printf '%s\n' 'In the Codex project chat, ask: “Review README.md and docs/CODEX_ONBOARDING.md, open my local Job Search Command Center at http://127.0.0.1:3000 in a browser tab, and guide me through the first useful outcome.”'
+printf '\n%s\n' 'Next in Codex:'
+printf '%s\n' '  1. Return to the Job Search Command Center project chat.'
+printf '%s\n' '  2. Open a Browser tab in the right-side panel and enter http://127.0.0.1:3000.'
+printf '%s\n' '  3. Ask: “Review README.md and docs/CODEX_ONBOARDING.md, use the open portal tab, and guide me through the first useful outcome.”'

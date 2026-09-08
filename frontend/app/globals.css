@@ -415,6 +415,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .modal > header > div > p:last-child { margin: 6px 0 0; color: var(--muted); font-size: 11px; }
 .close-button { width: 32px; height: 32px; background: #efeee8; border-radius: 50%; font-size: 18px; }
 .modal-form { padding: 24px 28px 28px; display: grid; gap: 15px; }
+.modal > .profile-settings-form { padding: 24px 28px 28px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .field { display: grid; gap: 6px; }
 .field > span { color: #58625d; font-size: 9px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
@@ -1619,7 +1620,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .compact-pagination { align-items: flex-start; flex-direction: column; }
   .modal-backdrop { padding: 0; align-items: end; }
   .modal { max-height: 94vh; border-radius: 16px 16px 0 0; }
-  .modal > header, .modal-form { padding-left: 20px; padding-right: 20px; }
+  .modal > header, .modal-form, .modal > .profile-settings-form { padding-left: 20px; padding-right: 20px; }
   .top-navigation .primary-button { display: none; }
   .filter-bar { grid-template-columns: 1fr 1fr; }
   .filter-bar .search-field { grid-column: 1 / -1; }

@@ -16,7 +16,8 @@ For the Codex-assisted experience:
 2. Create a local project named **Job Search Command Center**.
 3. Add the cloned `job-search-command-center` repository folder and make it the primary folder.
 4. Start a new chat inside that project.
-5. After installation, paste the installer’s final prompt into that project chat.
+5. After installation, return to that chat and open a **Browser** tab in the right-side panel.
+6. Enter `http://127.0.0.1:3000`, then paste the installer’s final prompt into the project chat.
 
 The local project lets Codex read the repository documentation and assist with onboarding and later workflows. It is recommended, but the Docker application can run without it.
 

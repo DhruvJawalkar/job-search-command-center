@@ -8,7 +8,7 @@ V1 is a complete, Docker-packaged, single-user release. It runs on your computer
 
 For the Codex-assisted experience, open **Projects** in the Codex desktop app, create a local project named **Job Search Command Center**, add the cloned `job-search-command-center` repository folder, and make it the primary folder. Start a new chat inside that project before running setup.
 
-Attaching the repository gives the project chat access to the application files and checked-in guidance. After setup finishes, paste the prompt printed by the installer into that project chat so Codex can open the local application and assist with onboarding and later workflows. This Codex project is recommended but is not required to run the Docker application.
+Attaching the repository gives the project chat access to the application files and checked-in guidance. After setup finishes, return to that chat, open a **Browser** tab in the right-side panel, and enter `http://127.0.0.1:3000`. Paste the prompt printed by the installer so Codex can use the open portal tab to assist with onboarding and later workflows. This Codex project is recommended but is not required to run the Docker application.
 
 ## Start in 5–10 minutes
 

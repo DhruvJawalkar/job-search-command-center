@@ -8,9 +8,9 @@ Open **Projects** in the Codex desktop app and create a local project named **Jo
 
 ## Open the local app
 
-After setup reports healthy, ask in that project chat:
+After setup reports healthy, return to the project chat, open a **Browser** tab in the right-side panel, and enter `http://127.0.0.1:3000`. Then ask:
 
-> Review `README.md` and `docs/CODEX_ONBOARDING.md`, open my local Job Search Command Center at `http://127.0.0.1:3000` in a browser tab, and guide me through the first useful outcome. Do not submit an application or send outreach without my explicit review and instruction.
+> Review `README.md` and `docs/CODEX_ONBOARDING.md`, use the open portal tab, and guide me through the first useful outcome. Do not submit an application or send outreach without my explicit review and instruction.
 
 Complete the local profile, then add one opening and decide whether to shortlist, seek a referral, apply, or skip.
 

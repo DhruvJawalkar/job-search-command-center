@@ -15,5 +15,6 @@ All notable public releases are documented here.
 - Added the PolyForm Noncommercial 1.0.0 license, required creator notice, project-identity rules, and commercial-license guidance.
 - Added public installation, development, daily-workbook, Codex-assisted onboarding, demo, security, reconstruction, and V2-teaser documentation.
 - Added an explicit Codex local-project onboarding step so project chats begin with the cloned repository as their primary file context.
+- Added an explicit right-side Codex Browser step and corrected the personalization dialog’s missing side and bottom padding.
 
 The `v1.0.0` tag will identify the complete packaged release after manual acceptance. The first commit remains the auditable V1 reconstruction before public packaging.
