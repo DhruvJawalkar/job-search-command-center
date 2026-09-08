@@ -12,7 +12,9 @@ After setup reports healthy, return to the project chat, open a **Browser** tab 
 
 > Review `README.md` and `docs/CODEX_ONBOARDING.md`, use the open portal tab, and guide me through the first useful outcome. Do not submit an application or send outreach without my explicit review and instruction.
 
-Complete the local profile, then add one opening and decide whether to shortlist, seek a referral, apply, or skip.
+Complete the local profile, then add one opening. In an empty personal workspace, the first saved opening hands off to **Network** automatically. Use the selected opening’s focused LinkedIn searches for alumni, recruiters, engineering managers, and engineers; the company and role are placed into the Boolean query for you. Ask Codex to help assess trusted-contact paths and draft an outreach message for review, or start from one of the editable message templates below the searches. Nothing is sent automatically.
+
+After exploring the referral path, continue the guided tour into **Market & skills**, **Preparation**, **Weekly review**, and **Profile**, or dismiss the guide and browse the application in your own order. Then decide whether to shortlist, seek a referral, apply, or skip the opening.
 
 ## Proposed daily discovery task
 

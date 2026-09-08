@@ -38,7 +38,8 @@ Do not configure the entire system before getting value from it:
 
 1. Save a small local profile with your target role, level, location, work style, company preferences, career direction, values, and technology inclusions/exclusions.
 2. Add or import one real opening.
-3. Review the evidence and choose one next action: shortlist, seek a referral, apply, or skip.
+3. Follow the first-opening handoff to **Network** and explore a trusted-contact path. Codex can help evaluate likely contacts and draft an outreach message for your review; focused LinkedIn searches and editable message templates are built into the page.
+4. Review the available evidence and choose one next action: shortlist, seek a referral, apply, or skip.
 
 After that, use the broader operating loop:
 

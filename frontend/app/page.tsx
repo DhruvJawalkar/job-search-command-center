@@ -24,7 +24,10 @@ type Opportunity = {
   discoveredAt: string; applicationId: string | null;
 };
 type TrackedOpportunity = {
-  id: string; companyName: string; roleTitle: string; status: OpportunityStatus;
+  id: string; companyName: string; roleTitle: string; location: string | null; workMode: string;
+  sourceUrl: string | null; description: string | null; status: OpportunityStatus;
+  fitScore: number | null; fitSummary: string | null; archiveReason: string | null;
+  archivedAt: string | null; archivedFromStatus: OpportunityStatus | null; discoveredAt: string;
 };
 type Dashboard = {
   date: string; totalOpportunities: number; shortlistedOpportunities: number; activeApplications: number;
@@ -45,12 +48,13 @@ type InterviewRound = { id: string; applicationId: string; title: string; type: 
   reminderMinutesBefore: number | null; version: number; calendarVersion: number | null };
 type Opening = {
   opportunityId: string; companyName: string; roleTitle: string; location: string | null; workMode: string;
-  status: OpportunityStatus; sourceUrl: string; observedOn: string; rank: number; overallFit: number;
-  recruiterScreenStrength: number; technicalScope: number; growthPotential: number; weightedTotal: number;
+  status: OpportunityStatus; sourceUrl: string; observedOn: string; rank: number | null; overallFit: number | null;
+  recruiterScreenStrength: number | null; technicalScope: number | null; growthPotential: number | null; weightedTotal: number | null;
   recommendation: string; roleSummary: string; fitRationale: string; keyRisks: string | null;
   recommendedResumeVariant: string | null; applicationId: string | null; applicationStage: ApplicationStage | null;
   archiveReason: string | null;
   archivedAt: string | null; archivedFromStatus: OpportunityStatus | null;
+  intelligenceSource?: "IMPORTED" | "DIRECT";
 };
 type ReferralOpening = Pick<Opening, "opportunityId" | "companyName" | "roleTitle">;
 type OpeningFeed = {
@@ -258,6 +262,8 @@ const PREP_ITEMS_PER_PAGE = 5;
 const SKILL_REVIEW_PER_PAGE = 8;
 const MARKET_SIGNALS_PER_PAGE = 10;
 const CALENDAR_NOTICE_STORAGE_KEY = "job-search.calendar-notice-dismissals.v1";
+const FIRST_OPENING_HANDOFF_STORAGE_KEY = "job-search.first-opening-network-handoff.v1";
+const FIRST_OPENING_GUIDE_DISMISSAL_STORAGE_KEY = "job-search.first-opening-network-guide-dismissal.v1";
 const weeklyFocusPlans: Record<number, DailyFocusPlan> = {
   0: { label: "Writing & weekly synthesis", title: "Technical article writing and publication",
     description: "Turn the week’s engineering learning into a clear technical article, then close the review and plan the next week.",
@@ -552,6 +558,8 @@ export default function Home() {
   const [profile, setProfile] = useState<LocalProfile>(emptyProfile);
   const [installation, setInstallation] = useState<InstallationStatus>(defaultInstallation);
   const [profileSetupOpen, setProfileSetupOpen] = useState(false);
+  const [firstOpeningHandoffId, setFirstOpeningHandoffId] = useState(() => readLocalStorageValue(FIRST_OPENING_HANDOFF_STORAGE_KEY));
+  const [firstOpeningGuideDismissedId, setFirstOpeningGuideDismissedId] = useState(() => readLocalStorageValue(FIRST_OPENING_GUIDE_DISMISSAL_STORAGE_KEY));
   const profilePrompted = useRef(false);
 
   const loadMarketSignals = useCallback(async () => {
@@ -640,6 +648,21 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [connected]);
   useEffect(() => {
+    const activeOpenings = trackedOpportunities.filter((opportunity) => opportunity.status !== "ARCHIVED");
+    if (!connected || loading || installation.demoMode || !profile.onboardingCompleted || outreach.length > 0
+      || activeOpenings.length !== 1 || firstOpeningHandoffId === activeOpenings[0].id) return;
+    const openingId = activeOpenings[0].id;
+    const timer = window.setTimeout(() => {
+      setFirstOpeningHandoffId(openingId);
+      writeLocalStorageValue(FIRST_OPENING_HANDOFF_STORAGE_KEY, openingId);
+      setReferralOpportunityId(openingId);
+      window.location.hash = "outreach";
+      setActiveWorkspace("outreach");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [connected, firstOpeningHandoffId, installation.demoMode, loading, outreach.length, profile.onboardingCompleted, trackedOpportunities]);
+  useEffect(() => {
     if (!connected) return;
     const timer = window.setTimeout(() => void loadMarketSignals(), 0);
     return () => window.clearTimeout(timer);
@@ -650,7 +673,27 @@ export default function Home() {
   const weeklyApplicationProgress = Math.min(100, Math.round((dashboard.appliedThisWeek / WEEKLY_APPLICATION_TARGET) * 100));
   const weeklyApplicationsRemaining = Math.max(0, WEEKLY_APPLICATION_TARGET - dashboard.appliedThisWeek);
 
-  const displayFeed = openingView === "archived" ? archivedFeed : feed;
+  const importedDisplayFeed = openingView === "archived" ? archivedFeed : feed;
+  const displayFeed = useMemo<OpeningFeed>(() => {
+    const importedIds = new Set(importedDisplayFeed.openings.map((opening) => opening.opportunityId));
+    const includeArchived = openingView === "archived";
+    const directOpenings = trackedOpportunities
+      .filter((opportunity) => (opportunity.status === "ARCHIVED") === includeArchived && !importedIds.has(opportunity.id))
+      .map((opportunity) => trackedOpportunityToOpening(opportunity, applications));
+    const openings = [...importedDisplayFeed.openings, ...directOpenings];
+    const availableDates = Array.from(new Set([
+      ...importedDisplayFeed.availableDates,
+      ...directOpenings.map((opening) => opening.observedOn),
+    ])).sort().reverse();
+    return {
+      ...importedDisplayFeed,
+      latestObservationDate: availableDates[0] ?? null,
+      resultCount: openings.length,
+      openings,
+      availableDates,
+      recommendations: Array.from(new Set(openings.map(openingRecommendation))).sort(),
+    };
+  }, [applications, importedDisplayFeed, openingView, trackedOpportunities]);
   const visibleOpenings = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const threshold = Number(minScore) || 0;
@@ -663,7 +706,7 @@ export default function Home() {
         && (dateFilter === "all"
           || (dateFilter === "latest" && opening.observedOn === displayFeed.latestObservationDate)
           || opening.observedOn === dateFilter)
-        && opening.weightedTotal >= threshold;
+        && (threshold === 0 || (opening.weightedTotal ?? 0) >= threshold);
     });
   }, [dateFilter, displayFeed, minScore, openingView, query, recommendation, resumeFilter]);
   const openingPageCount = Math.max(1, Math.ceil(visibleOpenings.length / OPENINGS_PER_PAGE));
@@ -768,6 +811,9 @@ export default function Home() {
   const referralOpening = referralOpenings.find((opening) => opening.opportunityId === referralOpportunityId) ?? referralOpenings[0] ?? null;
   const referralOpeningId = referralOpening?.opportunityId ?? null;
   const hasOutreachActivity = outreach.length > 0;
+  const activeTrackedOpenings = trackedOpportunities.filter((opportunity) => opportunity.status !== "ARCHIVED");
+  const showFirstOpeningNetworkGuide = !installation.demoMode && profile.onboardingCompleted && !hasOutreachActivity
+    && activeTrackedOpenings.length === 1 && firstOpeningGuideDismissedId !== activeTrackedOpenings[0].id;
   const openingCandidates = referralCandidates.filter((candidate) => candidate.opportunityId === referralOpening?.opportunityId && candidate.status !== "DISMISSED");
   const matchingContacts = contacts.filter((contact) => referralOpening && contact.companyName?.toLowerCase() === referralOpening.companyName.toLowerCase());
   const proposedSkillObservations = skillOverview.observations.filter((item) => item.reviewStatus === "PROPOSED");
@@ -1067,6 +1113,12 @@ export default function Home() {
 
   async function showDetail(opening: Opening) {
     if (!connected) return;
+    if (opening.intelligenceSource === "DIRECT") {
+      setDetail({ opening, roleSummary: opening.roleSummary, fitRationale: opening.fitRationale,
+        keyRisks: opening.keyRisks, authorizationEligibility: null, postingDate: null,
+        verifiedDate: opening.observedOn, observationHistory: [] });
+      return;
+    }
     setDetailLoading(true);
     try { setDetail(await api<OpeningDetail>(`/api/v1/opportunities/${opening.opportunityId}/intelligence`)); }
     catch (error) { setToast({ kind: "error", message: error instanceof Error ? error.message : "Could not load opening details." }); }
@@ -1187,6 +1239,12 @@ export default function Home() {
     setDismissedCalendarNoticeKeys(nextKeys);
     try { window.localStorage.setItem(CALENDAR_NOTICE_STORAGE_KEY, JSON.stringify(nextKeys)); }
     catch { /* The notice still remains dismissed for this session if browser storage is unavailable. */ }
+  }
+
+  function dismissFirstOpeningNetworkGuide() {
+    if (!activeTrackedOpenings[0]) return;
+    setFirstOpeningGuideDismissedId(activeTrackedOpenings[0].id);
+    writeLocalStorageValue(FIRST_OPENING_GUIDE_DISMISSAL_STORAGE_KEY, activeTrackedOpenings[0].id);
   }
 
   return (
@@ -1377,11 +1435,11 @@ export default function Home() {
           </section>
 
           <section className="panel intelligence-panel" id="openings">
-            <PanelHeader eyebrow="Evidence-backed opportunity inbox" title="High-fit openings"
+            <PanelHeader eyebrow="Saved and evidence-backed portfolio" title="High-fit openings"
               action={<div className="feed-meta"><strong>{visibleOpenings.length ? `${openingRangeStart}–${openingRangeEnd}` : "0"}</strong>
                 <span>of {visibleOpenings.length} {openingView === "archived" ? "archived" : openingView === "unapplied" ? "unapplied" : "shown"}</span></div>} />
             <div className="opportunity-metric-strip" aria-label="Opportunity portfolio summary">
-              <MetricCard label="Imported openings" value={dashboard.totalOpportunities} note="unique roles" tone="ink" />
+              <MetricCard label="Saved openings" value={dashboard.totalOpportunities} note="unique roles" tone="ink" />
               <MetricCard label="Shortlist" value={dashboard.shortlistedOpportunities} note="apply or refer" tone="coral" />
               <MetricCard label="Active pipeline" value={dashboard.activeApplications} note="applications in motion" tone="green" />
               <MetricCard label="Applied this week" value={dashboard.appliedThisWeek} note="quality submissions" tone="blue" />
@@ -1402,17 +1460,18 @@ export default function Home() {
                 <option value="0">Any score</option><option value="8">8.0+</option><option value="8.5">8.5+</option><option value="9">9.0+</option></select></label>
             </div>
 
-            <div className="opening-table" role="table" aria-label="Imported high-fit openings">
+            <div className="opening-table" role="table" aria-label="Saved and imported high-fit openings">
               <div className="opening-table-head" role="row"><span>Rank / opening</span><span>Fit</span><span>Recommendation</span><span>Resume lane</span><span>Next step</span></div>
               {visibleOpenings.length === 0 ? <EmptyState text={openingView === "archived" ? "No archived openings match these filters." : openingView === "unapplied" ? "No unapplied openings match these filters." : "No openings match these filters."} /> : pagedOpenings.map((opening) =>
                 <article className={`opening-row ${openingView === "archived" ? "archived" : ""}`} key={`${opening.opportunityId}-${opening.observedOn}`}>
                   <button className="opening-main" onClick={() => void showDetail(opening)} disabled={!connected}>
-                    <span className="rank-number">{String(opening.rank).padStart(2, "0")}</span>
+                    <span className="rank-number">{opening.rank === null ? "—" : String(opening.rank).padStart(2, "0")}</span>
                     <span><strong>{opening.roleTitle}</strong><small>{opening.companyName} · {opening.location ?? "Location not listed"}</small>
+                      {opening.intelligenceSource === "DIRECT" && <em className="direct-opening-note">Added directly · daily rank pending</em>}
                       {opening.archiveReason && <em className="archive-note">Not pursuing: {opening.archiveReason}</em>}</span>
                   </button>
                   <button className="score-button" onClick={() => void showDetail(opening)} disabled={!connected}>
-                    <strong>{opening.weightedTotal.toFixed(2)}</strong><span>/ 10</span>
+                    <strong>{opening.weightedTotal === null ? "—" : opening.weightedTotal.toFixed(2)}</strong><span>{opening.weightedTotal === null ? "not scored" : "/ 10"}</span>
                   </button>
                   <span className={`recommendation-pill ${recommendationClass(openingRecommendation(opening))}`}>{openingRecommendation(opening)}</span>
                   <span className="resume-lane">{opening.recommendedResumeVariant ?? "Not assigned"}</span>
@@ -1428,7 +1487,7 @@ export default function Home() {
                       <button className="referral-link path-link" disabled={!connected} onClick={() => startReferralDiscovery(opening)}>Find paths</button>
                       {!opening.applicationId && <button className="archive-link" disabled={!connected} onClick={() => setArchiveTarget(opening)}>Archive</button>}</>}
                     {opening.applicationId && <button className="referral-link" disabled={!connected} onClick={() => setInterviewApplicationId(opening.applicationId)}>Interviews</button>}
-                    <a className="external-link" href={opening.sourceUrl} target="_blank" rel="noreferrer" aria-label={`Open ${opening.companyName} job posting`}>↗</a></div>
+                    {opening.sourceUrl && <a className="external-link" href={opening.sourceUrl} target="_blank" rel="noreferrer" aria-label={`Open ${opening.companyName} job posting`}>↗</a>}</div>
                 </article>)}</div>
             {visibleOpenings.length > 0 && <nav className="opening-pagination" aria-label="High-fit openings pages">
               <button className="secondary-button" disabled={effectiveOpeningPage === 1} onClick={() => setCurrentOpeningPage(effectiveOpeningPage - 1)}>← Previous</button>
@@ -1458,6 +1517,14 @@ export default function Home() {
             </div></>}
 
             <section className="referral-discovery">
+              {showFirstOpeningNetworkGuide && referralOpening && <aside className="first-opening-network-guide" aria-label="First opening referral guidance">
+                <div><p className="eyebrow">First opening saved</p><h2>Find one trusted path before moving on.</h2>
+                  <p>Codex can help you assess likely contacts and draft a concise outreach message for your review. Nothing is sent from this workflow.</p></div>
+                <blockquote>Ask Codex: “Help me find a trusted contact for this opening and draft a personalized outreach message for my review. Do not send it.”</blockquote>
+                <ul><li>Focused LinkedIn searches cover alumni, recruiters, engineering managers, and engineers.</li>
+                  <li>The selected company and role automatically populate each LinkedIn Boolean search.</li>
+                  <li>Editable message templates are available below for connection requests, InMail, and referral messages.</li></ul>
+              </aside>}
               <header className="discovery-context"><div><p className="section-label">Referral path finder</p><h3>{referralOpening ? `${referralOpening.companyName} · ${referralOpening.roleTitle}` : "Choose a high-fit opening"}</h3>
                 <p>Search your network, record the people worth considering, and compare why each route may work.</p></div>
                 <label><span>Opening</span><select value={referralOpening?.opportunityId ?? ""} onChange={(event) => setReferralOpportunityId(event.target.value)}>
@@ -1548,6 +1615,11 @@ export default function Home() {
                       {messageTemplateDraft.length} characters{messageTemplateScenario.startsWith("CONNECTION_") ? " · LinkedIn connection notes allow 300" : ""}</span>
                       <button className="primary-button" type="button" disabled={!messageTemplateDraft.trim()} onClick={() => void copyMessageTemplate()}>Copy message</button></div></div>}
               </section>
+              {showFirstOpeningNetworkGuide && <section className="first-opening-tour-handoff" aria-label="Continue onboarding">
+                <div><p className="section-label">Continue when ready</p><strong>Keep following the guided tour, or explore the command center in your own order.</strong></div>
+                <div><a className="primary-button" href="#skills" onClick={dismissFirstOpeningNetworkGuide}>Continue guided tour →</a>
+                  <button className="text-button" type="button" onClick={dismissFirstOpeningNetworkGuide}>Browse on my own</button></div>
+              </section>}
             </section>
 
             {hasOutreachActivity && <><div className="outreach-heading"><p className="section-label">Active outreach and follow-ups</p>
@@ -1966,6 +2038,7 @@ function ProfileSettingsForm({ profile, connected, onboarding = false, onSaved }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the local profile."); }
     finally { setSaving(false); }
   }
+
   return <form className="profile-settings-form" onSubmit={save}>
     {onboarding && <div className="profile-onboarding-intro"><span>About 2 minutes</span><strong>Start with enough context to rank one opening well.</strong>
       <p>You can leave optional fields blank and refine them later from Profile.</p></div>}
@@ -2523,26 +2596,29 @@ function WeeklyReviewRevisionModal({ review, onClose, onSaved, onError }: { revi
 
 function OpeningDetailModal({ detail, onClose, onStart }: { detail: OpeningDetail; onClose: () => void; onStart: () => void }) {
   const opening = detail.opening;
+  const directlyAdded = opening.intelligenceSource === "DIRECT";
   return <Modal title={opening.roleTitle} subtitle={`${opening.companyName} · ${opening.location ?? "Location not listed"}`} onClose={onClose} wide>
     <div className="detail-body">
       <div className="detail-banner"><div><span className={`recommendation-pill ${recommendationClass(openingRecommendation(opening))}`}>{openingRecommendation(opening)}</span>
-        <p>Rank #{opening.rank} on {formatDate(opening.observedOn)}</p></div><strong>{opening.weightedTotal.toFixed(2)}<small>/10 weighted fit</small></strong></div>
-      <div className="score-grid">
+        <p>{directlyAdded ? `Saved directly on ${formatDate(opening.observedOn)}` : `Rank #${opening.rank} on ${formatDate(opening.observedOn)}`}</p></div>
+        <strong>{opening.weightedTotal === null ? "—" : opening.weightedTotal.toFixed(2)}<small>{opening.weightedTotal === null ? "fit not scored" : directlyAdded ? "/10 saved fit" : "/10 weighted fit"}</small></strong></div>
+      {directlyAdded ? <div className="direct-intelligence-note"><strong>Daily intelligence not imported yet</strong>
+        <span>This opening is fully available for referral discovery and application planning. A future daily-file import can add its rank, evidence dimensions, recommendation history, and resume lane.</span></div> : <div className="score-grid">
         <Score label="Overall fit" value={opening.overallFit} />
         <Score label="Recruiter screen" value={opening.recruiterScreenStrength} />
         <Score label="Technical scope" value={opening.technicalScope} />
         <Score label="Growth potential" value={opening.growthPotential} />
-      </div>
+      </div>}
       <div className="detail-columns"><section><p className="section-label">Role summary</p><p>{detail.roleSummary}</p>
         <p className="section-label">Why it fits</p><p>{detail.fitRationale}</p></section>
         <section className="risk-panel"><p className="section-label">Risks and gaps</p><p>{detail.keyRisks ?? "No explicit risk notes were imported."}</p>
           <dl><div><dt>Recommended resume</dt><dd>{opening.recommendedResumeVariant ?? "Not assigned"}</dd></div>
             <div><dt>Eligibility</dt><dd>{detail.authorizationEligibility ?? "Not specified"}</dd></div>
-            <div><dt>Verified</dt><dd>{formatDate(detail.verifiedDate)}</dd></div></dl></section></div>
+            <div><dt>{directlyAdded ? "Saved" : "Verified"}</dt><dd>{formatDate(detail.verifiedDate)}</dd></div></dl></section></div>
       {detail.observationHistory.length > 1 && <section className="history-strip"><p className="section-label">Observation history</p>
         {detail.observationHistory.map((item) => <span key={item.observedOn}>{formatDate(item.observedOn)} · #{item.rank} · {item.weightedTotal.toFixed(2)}</span>)}</section>}
       {opening.status === "ARCHIVED" && <div className="archived-detail"><strong>Not pursuing</strong><span>{opening.archiveReason}</span></div>}
-      <div className="detail-actions"><a className="secondary-button link-button" href={opening.sourceUrl} target="_blank" rel="noreferrer">Open original listing ↗</a>
+      <div className="detail-actions">{opening.sourceUrl && <a className="secondary-button link-button" href={opening.sourceUrl} target="_blank" rel="noreferrer">Open original listing ↗</a>}
         {opening.status === "ARCHIVED" ? <span className="archive-state">Restore this opening before starting an application.</span>
           : opening.applicationId ? <span className="applied-check">✓ Application already created</span>
           : <button className="primary-button" onClick={onStart}>Start application</button>}</div>
@@ -2550,8 +2626,15 @@ function OpeningDetailModal({ detail, onClose, onStart }: { detail: OpeningDetai
   </Modal>;
 }
 
-function Score({ label, value }: { label: string; value: number }) {
-  return <div className="score-card"><span>{label}</span><strong>{value.toFixed(1)}</strong><i><b style={{ width: `${value * 10}%` }} /></i></div>;
+function Score({ label, value }: { label: string; value: number | null }) {
+  return <div className="score-card"><span>{label}</span><strong>{value === null ? "—" : value.toFixed(1)}</strong><i><b style={{ width: `${(value ?? 0) * 10}%` }} /></i></div>;
+}
+function readLocalStorageValue(key: string) {
+  if (typeof window === "undefined") return "";
+  try { return window.localStorage.getItem(key) ?? ""; } catch { return ""; }
+}
+function writeLocalStorageValue(key: string, value: string) {
+  try { window.localStorage.setItem(key, value); } catch { /* The guide remains correct for the current session. */ }
 }
 
 function ArchiveOpeningModal({ opening, onClose, onSaved, onError }: { opening: Opening; onClose: () => void;
@@ -4174,8 +4257,44 @@ function compactResourceHost(value: string) { try { return new URL(value).hostna
 function openingToOpportunity(opening: Opening): Opportunity {
   return { id: opening.opportunityId, companyName: opening.companyName, roleTitle: opening.roleTitle,
     location: opening.location, workMode: opening.workMode, status: opening.status,
-    fitScore: Math.round(opening.weightedTotal * 10), fitSummary: opening.fitRationale,
+    fitScore: opening.weightedTotal === null ? null : Math.round(opening.weightedTotal * 10), fitSummary: opening.fitRationale,
     discoveredAt: `${opening.observedOn}T00:00:00+05:30`, applicationId: opening.applicationId };
+}
+function trackedOpportunityToOpening(opportunity: TrackedOpportunity, applications: ApplicationRecord[]): Opening {
+  const application = applications.find((item) => item.opportunityId === opportunity.id) ?? null;
+  const fit = opportunity.fitScore === null ? null : opportunity.fitScore / 10;
+  const recommendation = opportunity.status === "SHORTLISTED" ? "Referral first"
+    : opportunity.status === "SKIPPED" ? "Skip"
+      : opportunity.status === "EXPIRED" ? "Expired"
+        : opportunity.status === "APPLIED" ? "Applied"
+          : opportunity.status === "REVIEWING" ? "Review opening" : "New opening";
+  return {
+    opportunityId: opportunity.id,
+    companyName: opportunity.companyName,
+    roleTitle: opportunity.roleTitle,
+    location: opportunity.location,
+    workMode: opportunity.workMode,
+    status: opportunity.status,
+    sourceUrl: opportunity.sourceUrl ?? "",
+    observedOn: opportunity.discoveredAt.slice(0, 10),
+    rank: null,
+    overallFit: fit,
+    recruiterScreenStrength: null,
+    technicalScope: null,
+    growthPotential: null,
+    weightedTotal: fit,
+    recommendation,
+    roleSummary: opportunity.description ?? "No role description was saved with this opening.",
+    fitRationale: opportunity.fitSummary ?? "No fit rationale has been recorded yet.",
+    keyRisks: null,
+    recommendedResumeVariant: null,
+    applicationId: application?.id ?? null,
+    applicationStage: application?.stage ?? null,
+    archiveReason: opportunity.archiveReason,
+    archivedAt: opportunity.archivedAt,
+    archivedFromStatus: opportunity.archivedFromStatus,
+    intelligenceSource: "DIRECT",
+  };
 }
 function linkedinPeopleSearch(opening: ReferralOpening, degree: "FIRST" | "SECOND", includeRoleKeywords = false) {
   const company = quoteLinkedInTerm(opening.companyName);
