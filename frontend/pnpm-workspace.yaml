@@ -1,0 +1,16 @@
+packages:
+  - "."
+
+# Avoid placing pnpm's large virtual store inside this OneDrive-backed workspace.
+virtualStoreDir: ${LOCALAPPDATA}/pnpm/virtual-stores/job-search-command-center
+confirmModulesPurge: false
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - workerd
+
+allowBuilds:
+  esbuild: set this to true or false
+  sharp: set this to true or false
+  workerd: set this to true or false

@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: job-search-command-center
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5432/job_search}
+    username: ${DB_USERNAME:job_search}
+    password: ${DB_PASSWORD:job_search_local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 16MB
+
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  seed-demo: ${APP_SEED_DEMO:false}
+  application-artifacts:
+    folder: ${APP_APPLICATION_RESUMES_FOLDER:../application-resumes}
+  notes:
+    folder: ${APP_NOTES_FOLDER:../notes}
+  assistance:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      model: ${APP_OPENAI_MODEL:}
+      base-url: ${APP_OPENAI_BASE_URL:https://api.openai.com/v1}
+  imports:
+    daily-high-fit:
+      enabled: ${APP_DAILY_HIGH_FIT_IMPORT_ENABLED:true}
+      folder: ${APP_DAILY_HIGH_FIT_FOLDER:../daily-high-fit-job-roles}
+    linkedin-connections:
+      file: ${APP_LINKEDIN_CONNECTIONS_FILE:../linkedin-data-import/Connections.csv}
+  cohorts:
+    company-targets:
+      folder: ${APP_COMPANY_TARGETS_FOLDER:..}
+      filename-pattern: ${APP_COMPANY_TARGETS_PATTERN:*_Hyderabad_Top_100_Target_Companies.xlsx}
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}

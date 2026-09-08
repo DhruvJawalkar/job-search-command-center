@@ -1,0 +1,85 @@
+.idea/
+.vscode/
+*.iml
+
+.env
+**/.env
+**/.env.*
+!**/.env.example
+backend/target/
+frontend/.next/
+frontend/dist/
+frontend/node_modules/
+frontend/.vinext/
+**/.wrangler/
+.pnpm-store/
+.codex-tmp/
+**/.codex/
+**/.codex-tmp/
+
+# Credentials, account exports, and private key material
+credentials.json
+credentials-*.json
+client_secret*.json
+*oauth-credentials*.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+
+data/
+application-resumes/
+/notes/
+/uploads/
+/local-data/
+/backups/
+/output/
+/tmp/
+*.log
+/agent-logs/
+
+# Personal outreach/planning notes. Generic reusable templates live in
+# linkedin-outreach-templates/ and remain safe to version.
+/LinkedIn connection request templates.txt
+/role-outreach-targets-notes.txt
+
+# Local databases and backups
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+.pgpass
+pgpass.conf
+
+# Browser/session authentication state
+.auth/
+**/.auth/
+**/storage-state*.json
+**/storageState*.json
+*cookies*.json
+cookies.txt
+
+# Local research, exports, preparation artifacts, and generated reference files
+daily-high-fit-job-roles/
+docs/
+linkedin-data-import/
+*LinkedIn*Export*.zip*
+*linkedin*data*export*.zip*
+linkedin-data-import*.zip*
+preparation-workspace/
+Local_Target_Companies.xlsx
+Agent_Project_Blueprint.pdf
+AI_Technical_Skill_Gap_Backlog.md
+
+# Personal resume files accidentally copied outside application-resumes/
+**/Submitted_Resume_*.pdf
+**/Submitted_Resume_*.docx
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: job-search-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-job_search}
+      POSTGRES_USER: ${POSTGRES_USER:-job_search}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-job_search_local}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - job-search-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-job_search} -d ${POSTGRES_DB:-job_search}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  job-search-postgres:
+
