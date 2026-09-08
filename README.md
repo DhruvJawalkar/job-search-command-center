@@ -4,6 +4,12 @@ A local-first command center for turning job-search activity into a deliberate o
 
 V1 is a complete, Docker-packaged, single-user release. It runs on your computer, starts empty by default, and offers an explicit synthetic-demo option.
 
+## Connect the clone to Codex
+
+For the Codex-assisted experience, open **Projects** in the Codex desktop app, create a local project named **Job Search Command Center**, add the cloned `job-search-command-center` repository folder, and make it the primary folder. Start a new chat inside that project before running setup.
+
+Attaching the repository gives the project chat access to the application files and checked-in guidance. After setup finishes, paste the prompt printed by the installer into that project chat so Codex can open the local application and assist with onboarding and later workflows. This Codex project is recommended but is not required to run the Docker application.
+
 ## Start in 5–10 minutes
 
 Requirements: Docker Desktop on Windows or macOS, or Docker Engine with Compose v2 on Linux. You do not need to install Java, Maven, Node.js, pnpm, or PostgreSQL.

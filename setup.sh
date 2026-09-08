@@ -17,6 +17,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 printf '\nJob Search Command Center — local setup\n'
+printf '%s\n' 'Recommended Codex project setup:'
+printf '%s\n' '  1. In Codex, create a local project named "Job Search Command Center".'
+printf '  2. Add this repository folder and make it the primary folder: %s\n' "$SCRIPT_DIR"
+printf '%s\n\n' '  3. Start a chat in that project. After setup, paste the prompt shown at the end.'
 printf '%s\n' 'This will:'
 printf '%s\n' '  1. Create a private local workspace and configuration.'
 printf '%s\n' '  2. Build PostgreSQL, API, and portal containers.'
@@ -76,4 +80,4 @@ docker compose --project-name job-search-command-center --env-file "$ENV_FILE" -
 printf '\nSetup complete.\n'
 printf 'Workspace folder: %s\n' "$PROJECT_FOLDER"
 printf '%s\n' 'App: http://127.0.0.1:3000' 'API health: http://127.0.0.1:8080/actuator/health'
-printf '%s\n' 'In Codex, ask: “Open my local Job Search Command Center and guide me through the first useful outcome.”'
+printf '%s\n' 'In the Codex project chat, ask: “Review README.md and docs/CODEX_ONBOARDING.md, open my local Job Search Command Center at http://127.0.0.1:3000 in a browser tab, and guide me through the first useful outcome.”'

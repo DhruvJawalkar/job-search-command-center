@@ -8,6 +8,18 @@
 
 No system JDK, Maven, Node.js, pnpm, or PostgreSQL installation is required for the Docker-first path.
 
+## Connect the clone to Codex
+
+For the Codex-assisted experience:
+
+1. Open **Projects** in the Codex desktop app.
+2. Create a local project named **Job Search Command Center**.
+3. Add the cloned `job-search-command-center` repository folder and make it the primary folder.
+4. Start a new chat inside that project.
+5. After installation, paste the installer’s final prompt into that project chat.
+
+The local project lets Codex read the repository documentation and assist with onboarding and later workflows. It is recommended, but the Docker application can run without it.
+
 ## Guided setup
 
 Windows PowerShell:

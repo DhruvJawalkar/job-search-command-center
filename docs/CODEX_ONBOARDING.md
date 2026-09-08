@@ -2,11 +2,15 @@
 
 Codex is a guide and operator around the local V1 application, not an autonomous application-submission system. Keep research, drafting, review, and consequential actions visibly separated.
 
+## Create the local Codex project
+
+Open **Projects** in the Codex desktop app and create a local project named **Job Search Command Center**. Add the cloned `job-search-command-center` repository folder and make it the primary folder, then start a new chat inside that project. The project chat can read this repository’s application files and checked-in guidance, which provides continuity for onboarding and later workflows.
+
 ## Open the local app
 
-After setup reports healthy, ask Codex:
+After setup reports healthy, ask in that project chat:
 
-> Open `http://127.0.0.1:3000` in a browser tab inside Codex and guide me through the first useful outcome. Do not submit an application or send outreach without my explicit review and instruction.
+> Review `README.md` and `docs/CODEX_ONBOARDING.md`, open my local Job Search Command Center at `http://127.0.0.1:3000` in a browser tab, and guide me through the first useful outcome. Do not submit an application or send outreach without my explicit review and instruction.
 
 Complete the local profile, then add one opening and decide whether to shortlist, seek a referral, apply, or skip.
 

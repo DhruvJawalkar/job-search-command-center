@@ -15,6 +15,11 @@ $defaultFolder = Join-Path $sourceRoot 'workspace'
 
 Write-Host ''
 Write-Host 'Job Search Command Center — local setup' -ForegroundColor Cyan
+Write-Host 'Recommended Codex project setup:'
+Write-Host '  1. In Codex, create a local project named "Job Search Command Center".'
+Write-Host "  2. Add this repository folder and make it the primary folder: $sourceRoot"
+Write-Host '  3. Start a chat in that project. After setup, paste the prompt shown at the end.'
+Write-Host ''
 Write-Host 'This will:'
 Write-Host '  1. Create a private local workspace and configuration.'
 Write-Host '  2. Build PostgreSQL, API, and portal containers.'
@@ -84,4 +89,4 @@ Write-Host 'Setup complete.' -ForegroundColor Green
 Write-Host "Workspace folder: $ProjectFolder"
 Write-Host 'App: http://127.0.0.1:3000'
 Write-Host 'API health: http://127.0.0.1:8080/actuator/health'
-Write-Host 'In Codex, ask: “Open my local Job Search Command Center and guide me through the first useful outcome.”'
+Write-Host 'In the Codex project chat, ask: “Review README.md and docs/CODEX_ONBOARDING.md, open my local Job Search Command Center at http://127.0.0.1:3000 in a browser tab, and guide me through the first useful outcome.”'
