@@ -23,6 +23,9 @@ type Opportunity = {
   status: OpportunityStatus; fitScore: number | null; fitSummary: string | null;
   discoveredAt: string; applicationId: string | null;
 };
+type TrackedOpportunity = {
+  id: string; companyName: string; roleTitle: string; status: OpportunityStatus;
+};
 type Dashboard = {
   date: string; totalOpportunities: number; shortlistedOpportunities: number; activeApplications: number;
   appliedThisWeek: number; actionsDue: number; actions: ActionItem[]; opportunities: Opportunity[];
@@ -49,6 +52,7 @@ type Opening = {
   archiveReason: string | null;
   archivedAt: string | null; archivedFromStatus: OpportunityStatus | null;
 };
+type ReferralOpening = Pick<Opening, "opportunityId" | "companyName" | "roleTitle">;
 type OpeningFeed = {
   latestObservationDate: string | null; resultCount: number; openings: Opening[]; availableDates: string[];
   recommendations: string[]; resumeVariants: string[];
@@ -459,6 +463,7 @@ export default function Home() {
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
   const [resumes, setResumes] = useState<ResumeVariant[]>([]);
   const [applications, setApplications] = useState<ApplicationRecord[]>([]);
+  const [trackedOpportunities, setTrackedOpportunities] = useState<TrackedOpportunity[]>([]);
   const [interviewApplicationId, setInterviewApplicationId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [outreach, setOutreach] = useState<Outreach[]>([]);
@@ -493,7 +498,7 @@ export default function Home() {
   const [inboxBusyId, setInboxBusyId] = useState<string | null>(null);
   const [duplicateScanBusy, setDuplicateScanBusy] = useState(false);
   const [applicationTarget, setApplicationTarget] = useState<ApplicationTarget | null>(null);
-  const [referralTarget, setReferralTarget] = useState<Opening | null>(null);
+  const [referralTarget, setReferralTarget] = useState<ReferralOpening | null>(null);
   const [referralOpportunityId, setReferralOpportunityId] = useState("");
   const [referralDiscoveryDialog, setReferralDiscoveryDialog] = useState<ReferralDiscoveryDialog | null>(null);
   const [messageTemplateScenario, setMessageTemplateScenario] = useState<MessageTemplateScenario>("");
@@ -561,10 +566,11 @@ export default function Home() {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextDashboard, nextResumes, nextApplications, nextFeed, nextArchivedFeed, nextActions, nextImports, nextContacts, nextOutreach, nextPreparation, nextCandidates, nextSkills, nextBacklog, nextLinkedIn, nextInbox, nextWeeklyReviews, nextMonthlyProgress, nextCalendarEvents, nextCalendarReminders, nextProfile, nextInstallation] = await Promise.all([
+      const [nextDashboard, nextResumes, nextApplications, nextTrackedOpportunities, nextFeed, nextArchivedFeed, nextActions, nextImports, nextContacts, nextOutreach, nextPreparation, nextCandidates, nextSkills, nextBacklog, nextLinkedIn, nextInbox, nextWeeklyReviews, nextMonthlyProgress, nextCalendarEvents, nextCalendarReminders, nextProfile, nextInstallation] = await Promise.all([
         api<Dashboard>("/api/v1/dashboard/morning"),
         api<ResumeVariant[]>("/api/v1/resumes"),
         api<ApplicationRecord[]>("/api/v1/applications"),
+        api<TrackedOpportunity[]>("/api/v1/opportunities"),
         api<OpeningFeed>("/api/v1/opportunities/intelligence"),
         api<OpeningFeed>("/api/v1/opportunities/intelligence?archived=true"),
         api<DailyActionDay>("/api/v1/daily-actions"),
@@ -584,7 +590,8 @@ export default function Home() {
         api<LocalProfile>("/api/v1/profile"),
         api<InstallationStatus>("/api/v1/installation"),
       ]);
-      setDashboard(nextDashboard); setResumes(nextResumes); setApplications(nextApplications); setFeed(nextFeed); setArchivedFeed(nextArchivedFeed);
+      setDashboard(nextDashboard); setResumes(nextResumes); setApplications(nextApplications); setTrackedOpportunities(nextTrackedOpportunities);
+      setFeed(nextFeed); setArchivedFeed(nextArchivedFeed);
       setDailyActions(nextActions); setImports(nextImports); setContacts(nextContacts);
       setOutreach(nextOutreach); setConnected(true);
       setPreparation(nextPreparation);
@@ -745,8 +752,22 @@ export default function Home() {
   );
   const outreachRangeStart = visibleOutreach.length === 0 ? 0 : (effectiveOutreachPage - 1) * OUTREACH_PER_PAGE + 1;
   const outreachRangeEnd = Math.min(effectiveOutreachPage * OUTREACH_PER_PAGE, visibleOutreach.length);
-  const referralOpening = feed.openings.find((opening) => opening.opportunityId === referralOpportunityId) ?? feed.openings[0] ?? null;
+  const referralOpenings = useMemo<ReferralOpening[]>(() => {
+    const importedIds = new Set(feed.openings.map((opening) => opening.opportunityId));
+    return [
+      ...feed.openings,
+      ...trackedOpportunities
+        .filter((opportunity) => opportunity.status !== "ARCHIVED" && !importedIds.has(opportunity.id))
+        .map((opportunity) => ({
+          opportunityId: opportunity.id,
+          companyName: opportunity.companyName,
+          roleTitle: opportunity.roleTitle,
+        })),
+    ];
+  }, [feed.openings, trackedOpportunities]);
+  const referralOpening = referralOpenings.find((opening) => opening.opportunityId === referralOpportunityId) ?? referralOpenings[0] ?? null;
   const referralOpeningId = referralOpening?.opportunityId ?? null;
+  const hasOutreachActivity = outreach.length > 0;
   const openingCandidates = referralCandidates.filter((candidate) => candidate.opportunityId === referralOpening?.opportunityId && candidate.status !== "DISMISSED");
   const matchingContacts = contacts.filter((contact) => referralOpening && contact.companyName?.toLowerCase() === referralOpening.companyName.toLowerCase());
   const proposedSkillObservations = skillOverview.observations.filter((item) => item.reviewStatus === "PROPOSED");
@@ -1424,8 +1445,8 @@ export default function Home() {
           {activeWorkspace === "outreach" && <div className="workspace-page outreach-page" id="outreach">
           <WorkspaceIntro eyebrow="Relationship-led execution" title="Referrals and outreach"
             description="Work the most urgent follow-ups first, then discover and qualify new referral paths for a selected opening." />
-          <section className="panel referral-panel" id="referrals">
-            <PanelHeader eyebrow="Network execution" title="Referrals & outreach"
+          <section className={`panel referral-panel${hasOutreachActivity ? "" : " referral-only"}`} id="referrals">
+            {hasOutreachActivity && <><PanelHeader eyebrow="Network execution" title="Referrals & outreach"
               action={<div className="feed-meta"><strong>{activeOutreach.length}</strong><span>active · {dueOutreach} due</span></div>} />
             <div className="referral-summary"><p>Explore every credible path first, then turn the strongest candidate into thoughtful outreach.</p>
               <span>{contacts.length} saved contact{contacts.length === 1 ? "" : "s"} · {referralCandidates.length} candidate path{referralCandidates.length === 1 ? "" : "s"}</span></div>
@@ -1434,13 +1455,13 @@ export default function Home() {
               <article><span>Ready to send</span><strong>{activeOutreach.filter((item) => item.status === "PLANNED").length}</strong><small>planned messages</small></article>
               <article><span>Awaiting reply</span><strong>{activeOutreach.filter((item) => item.status === "SENT").length}</strong><small>sent requests</small></article>
               <article><span>Warm outcomes</span><strong>{outreach.filter((item) => ["RESPONDED", "REFERRED"].includes(item.status)).length}</strong><small>responses or referrals</small></article>
-            </div>
+            </div></>}
 
             <section className="referral-discovery">
               <header className="discovery-context"><div><p className="section-label">Referral path finder</p><h3>{referralOpening ? `${referralOpening.companyName} · ${referralOpening.roleTitle}` : "Choose a high-fit opening"}</h3>
                 <p>Search your network, record the people worth considering, and compare why each route may work.</p></div>
                 <label><span>Opening</span><select value={referralOpening?.opportunityId ?? ""} onChange={(event) => setReferralOpportunityId(event.target.value)}>
-                  {feed.openings.map((opening) => <option value={opening.opportunityId} key={opening.opportunityId}>{opening.companyName} · {opening.roleTitle}</option>)}</select></label></header>
+                  {referralOpenings.map((opening) => <option value={opening.opportunityId} key={opening.opportunityId}>{opening.companyName} · {opening.roleTitle}</option>)}</select></label></header>
 
               {referralOpening && <section className="linkedin-network-matches" aria-label="Imported LinkedIn network matches">
                 <div className="section-heading"><div><p className="section-label">Official LinkedIn export</p><h3>First-degree company matches</h3></div>
@@ -1529,7 +1550,7 @@ export default function Home() {
               </section>
             </section>
 
-            <div className="outreach-heading"><p className="section-label">Active outreach and follow-ups</p>
+            {hasOutreachActivity && <><div className="outreach-heading"><p className="section-label">Active outreach and follow-ups</p>
               <span>{visibleOutreach.length} matching · sorted by {outreachSort === "URGENCY" ? "urgency" : formatEnum(outreachSort)}</span></div>
             <div className="outreach-controls" aria-label="Outreach filters">
               <label className="outreach-search"><span>Search</span><input value={outreachQuery} onChange={(event) => { setOutreachQuery(event.target.value); setCurrentOutreachPage(1); }} placeholder="Contact, company, or role…" /></label>
@@ -1548,8 +1569,7 @@ export default function Home() {
               </select></label>
             </div>
             <div className="outreach-list">
-              {outreach.length === 0 ? <EmptyState text="No referral activity yet. Use Track referral on a high-fit opening to begin." />
-                : visibleOutreach.length === 0 ? <EmptyState text="No outreach matches these filters. Try broadening the status, company, or timing selection." />
+              {visibleOutreach.length === 0 ? <EmptyState text="No outreach matches these filters. Try broadening the status, company, or timing selection." />
                 : pagedOutreach.map((item) => <article className={`outreach-card ${item.overdue ? "overdue" : ""}`} key={item.id}>
                   <div className="outreach-person"><span className="relationship-chip">{formatEnum(item.relationshipStrength)}</span>
                     <strong>{item.contactName}</strong><small>{item.contactCompany ?? "Company not recorded"} · for {item.companyName}</small></div>
@@ -1569,7 +1589,7 @@ export default function Home() {
                   onClick={() => setCurrentOutreachPage(page)} key={page}>{page}</button>)}</div>
               <span>Showing {outreachRangeStart}–{outreachRangeEnd} of {visibleOutreach.length} · {OUTREACH_PER_PAGE} per page</span>
               <button className="secondary-button" disabled={effectiveOutreachPage === outreachPageCount} onClick={() => setCurrentOutreachPage(effectiveOutreachPage + 1)}>Next →</button>
-            </nav>}
+            </nav>}</>}
           </section>
           </div>}
 
@@ -3061,7 +3081,7 @@ function OutreachFollowUpModal({ item, onClose, onSaved, onError }: {
 }
 
 function ReferralModal({ opening, contacts, onClose, onSaved, onError }: {
-  opening: Opening; contacts: Contact[]; onClose: () => void; onSaved: () => Promise<void>; onError: (message: string) => void;
+  opening: ReferralOpening; contacts: Contact[]; onClose: () => void; onSaved: () => Promise<void>; onError: (message: string) => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [contactMode, setContactMode] = useState(contacts.length > 0 ? contacts[0].id : "new");
@@ -3117,7 +3137,7 @@ function ReferralModal({ opening, contacts, onClose, onSaved, onError }: {
   </Modal>;
 }
 
-function ReferralDiscoveryModal({ dialog, opening, onClose, onSaved, onError }: { dialog: ReferralDiscoveryDialog; opening: Opening;
+function ReferralDiscoveryModal({ dialog, opening, onClose, onSaved, onError }: { dialog: ReferralDiscoveryDialog; opening: ReferralOpening;
   onClose: () => void; onSaved: (message: string) => Promise<void>; onError: (message: string) => void }) {
   const [saving,setSaving]=useState(false);
   async function submit(event: FormEvent<HTMLFormElement>){
@@ -4157,13 +4177,13 @@ function openingToOpportunity(opening: Opening): Opportunity {
     fitScore: Math.round(opening.weightedTotal * 10), fitSummary: opening.fitRationale,
     discoveredAt: `${opening.observedOn}T00:00:00+05:30`, applicationId: opening.applicationId };
 }
-function linkedinPeopleSearch(opening: Opening, degree: "FIRST" | "SECOND", includeRoleKeywords = false) {
+function linkedinPeopleSearch(opening: ReferralOpening, degree: "FIRST" | "SECOND", includeRoleKeywords = false) {
   const company = quoteLinkedInTerm(opening.companyName);
   const keywords = includeRoleKeywords ? `${company} AND ${quoteLinkedInTerm(linkedinRoleKeywords(opening))}` : company;
   const params = new URLSearchParams({ keywords, network: degree === "FIRST" ? '["F"]' : '["S"]', origin: "GLOBAL_SEARCH_HEADER" });
   return `https://www.linkedin.com/search/results/people/?${params.toString()}`;
 }
-function linkedinReferralPathSearch(opening: Opening, path: LinkedInPathSearch, includeRoleKeywords = false, profile: LocalProfile = emptyProfile) {
+function linkedinReferralPathSearch(opening: ReferralOpening, path: LinkedInPathSearch, includeRoleKeywords = false, profile: LocalProfile = emptyProfile) {
   const company = quoteLinkedInTerm(opening.companyName);
   const formerEmployers = (profile.previousEmployers ?? "").split(/[,;\n]/).map((value) => value.trim()).filter(Boolean)
     .slice(0, 5).map(quoteLinkedInTerm).join(" OR ");
@@ -4181,7 +4201,7 @@ function linkedinReferralPathSearch(opening: Opening, path: LinkedInPathSearch, 
   if (path === "ALUMNI" || path === "FORMER_COLLEAGUE") params.set("network", '["F","S"]');
   return `https://www.linkedin.com/search/results/people/?${params.toString()}`;
 }
-function linkedinRoleKeywords(opening: Opening) {
+function linkedinRoleKeywords(opening: ReferralOpening) {
   const roleSegments = opening.roleTitle.split(/\s[-–—]\s/).map((segment) => segment.trim()).filter(Boolean);
   if (roleSegments.length > 1) return roleSegments[roleSegments.length - 1];
   return opening.roleTitle;
@@ -4200,7 +4220,7 @@ function recommendationClass(value: string) {
 function openingRecommendation(opening: Opening) {
   return opening.applicationStage && opening.applicationStage !== "DRAFT" ? "Applied" : opening.recommendation;
 }
-function outreachMessageTemplate(scenario: Exclude<MessageTemplateScenario, "">, opening: Opening, profile: LocalProfile = emptyProfile) {
+function outreachMessageTemplate(scenario: Exclude<MessageTemplateScenario, "">, opening: ReferralOpening, profile: LocalProfile = emptyProfile) {
   const company = opening.companyName;
   const role = opening.roleTitle;
   const background = profile.includedTechnologies || "relevant platform and product engineering";
