@@ -73,6 +73,13 @@ linkedin-data-import*.zip*
 preparation-workspace/
 AI_Technical_Skill_Gap_Backlog.md
 
+# Public fictional examples are intentionally versioned.
+!samples/
+!samples/daily-high-fit-job-roles/
+!samples/daily-high-fit-job-roles/*.xlsx
+!samples/daily-high-fit-job-roles/*.txt
+!samples/daily-high-fit-job-roles/README.md
+
 # Personal resume files accidentally copied outside application-resumes/
 
 # Operating-system metadata

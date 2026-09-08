@@ -1,10 +1,11 @@
 # V1 release evidence
 
-This record captures the local release-candidate gates completed on 2026-09-08 before the `v1.0.0` tag was created. It contains no private workspace path, generated credential, resume, account export, or personal job-search data.
+This record captures the local release-candidate gates completed on 2026-09-08. The final `v1.0.0` tag remains pending manual acceptance. This record contains no private workspace path, generated credential, resume, account export, or personal job-search data.
 
 ## Automated gates
 
 - Backend unit and integration suite: `mvn -q test` — passed.
+- Committed sample-bundle import: ten openings and three opportunity-linked actions through the production importer — passed.
 - Frontend lint: `pnpm run lint` — passed.
 - Frontend production build and rendered-shell test: `pnpm run test` — passed.
 - Docker Compose configuration: `docker compose --env-file .env.example --file compose.yaml config --quiet` — passed.
@@ -42,4 +43,4 @@ Two independent local data folders were used so modes could not share a database
 - Generated `.env` files and local data folders remained ignored.
 - No Git remote was configured and no repository was published during preparation.
 - The preparatory reconstruction remains a separate parent commit.
-- The `v1.0.0` tag is reserved for the complete Docker-packaged public release commit.
+- The `v1.0.0` tag is reserved for the final, manually accepted Docker-packaged public release commit.

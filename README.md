@@ -46,6 +46,8 @@ After that, use the broader operating loop:
 
 The profile is stored in the local PostgreSQL database, not only in a Codex conversation and not in a hosted profile service.
 
+An import-ready fictional example with ten ranked openings and its companion top-three-actions file is available in [Sample daily files](samples/daily-high-fit-job-roles/README.md). The installer does not copy these into an empty-mode workspace automatically.
+
 ## Empty and demo modes
 
 Empty mode is the recommended personal starting point. Demo mode is opt-in and contains only synthetic people, companies, links, and activity. The app displays a persistent demo banner when it is enabled.
@@ -78,7 +80,7 @@ setup.sh       guided macOS/Linux setup
 
 ## Development and release evidence
 
-The accepted private V1 was reconstructed as the first auditable commit in this public history. [V1 reconstruction](docs/V1_RECONSTRUCTION.md) records its scope. The complete Docker-packaged release is a later commit and is the commit tagged `v1.0.0`.
+The accepted private V1 was reconstructed as the first auditable commit in this public history. [V1 reconstruction](docs/V1_RECONSTRUCTION.md) records its scope. The complete Docker-packaged release follows in later commits. The final manually accepted release commit will be tagged `v1.0.0`.
 
 Build and validation commands are in [Development](docs/DEVELOPMENT.md). The completed V1 gates are recorded in [Release evidence](docs/V1_RELEASE_EVIDENCE.md). The daily workbook contract is in [Daily high-fit ETL](docs/DAILY_HIGH_FIT_ETL.md).
 
@@ -92,4 +94,4 @@ Read [NOTICE](NOTICE), [Names and branding](TRADEMARKS.md), and [Commercial lice
 
 ## Beyond V1
 
-V1 demonstrates disciplined local workflows and Codex-assisted execution. A future V2 may add a governed agent platform with scoped roles, explicit approvals, auditable tool use, revocation, recovery, and evaluation-driven controls. See [V2 teaser](docs/V2_TEASER.md); those capabilities are not part of V1.
+V1 demonstrates disciplined local workflows and Codex-assisted execution. V2 will add within the next two weeks a governed agent platform with scoped roles, explicit approvals, auditable tool use, revocation, recovery, and evaluation-driven controls. See [V2 teaser](docs/V2_TEASER.md); those capabilities are not part of V1.

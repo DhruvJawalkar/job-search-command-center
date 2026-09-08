@@ -11,6 +11,10 @@ YYYY-MM-DD-top-three-actions.txt
 
 The action file is optional. The workbook date is the observation date. The importer preserves source metadata and a content hash; an identical file is replay-safe, while changed content is imported as new evidence.
 
+## Sample files
+
+The repository includes an import-ready fictional example with ten listings at [Sample daily files](../samples/daily-high-fit-job-roles/README.md). Copy both dated files into your local workspace’s `daily-high-fit-job-roles` folder, then select **Sync daily files** in Opportunities. The setup scripts do not copy the sample automatically, so empty mode remains empty.
+
 ## Workbook
 
 The workbook must contain a sheet named `High-Fit Openings` and these exact named headers. Column order may change.

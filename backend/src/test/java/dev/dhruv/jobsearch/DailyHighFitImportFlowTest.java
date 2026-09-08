@@ -40,6 +40,26 @@ class DailyHighFitImportFlowTest {
     private DailyPriorityActionRepository actionRepository;
 
     @Test
+    void importsTheCommittedPublicSampleBundle() throws Exception {
+        Path workbook = publicSamplePath("2026-09-08-high-fit-openings.xlsx");
+        Path actions = publicSamplePath("2026-09-08-top-three-actions.txt");
+
+        var batch = fileImporter.importFile(
+                workbook, actions, LocalDate.of(2026, 9, 8), "s".repeat(64));
+
+        assertThat(batch.getRowsSeen()).isEqualTo(10);
+        assertThat(batch.getOpportunitiesCreated()).isEqualTo(10);
+        assertThat(batch.getObservationsCreated()).isEqualTo(10);
+        assertThat(batch.getActionsCreated()).isEqualTo(3);
+        assertThat(observationRepository.findByObservedOnOrderBySourceRankAsc(LocalDate.of(2026, 9, 8)))
+                .extracting(observation -> observation.getSourceRank())
+                .containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        assertThat(actionRepository.findByActionDateOrderByPriorityRankAsc(LocalDate.of(2026, 9, 8)))
+                .hasSize(3)
+                .allSatisfy(action -> assertThat(action.getOpportunity()).isNotNull());
+    }
+
+    @Test
     void importsTheWeeklyFilesAndSkipsIdenticalContentOnReplay() throws Exception {
         // Never depend on the user's private, changing daily-opening workbooks.
         for (int day = 25; day <= 28; day++) {
@@ -98,6 +118,14 @@ class DailyHighFitImportFlowTest {
         assertThat(service.importConfiguredFolder().filesFailed()).isEqualTo(1);
         // This test uses real transaction boundaries: clean only its committed fixture.
         batchRepository.deleteById(incomplete.getId());
+    }
+
+    private Path publicSamplePath(String filename) {
+        Path fromRepositoryRoot = Path.of("samples", "daily-high-fit-job-roles", filename);
+        if (Files.isRegularFile(fromRepositoryRoot)) return fromRepositoryRoot;
+        Path fromBackendFolder = Path.of("..", "samples", "daily-high-fit-job-roles", filename);
+        assertThat(fromBackendFolder).isRegularFile();
+        return fromBackendFolder;
     }
 
     private void writeWorkbook(LocalDate date) throws Exception {
