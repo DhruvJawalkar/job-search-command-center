@@ -19,7 +19,8 @@ test("server-renders the command center shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>Job Search Command Center<\/title>/i);
   assert.match(html, /Morning command center/);
-  assert.match(html, /Good morning, there/);
+  assert.match(html, /Good morning/);
+  assert.match(html, /Local search preferences and personalization/);
   assert.match(html, /Daily perspective/);
   assert.match(html, /Weekly application goal/);
   assert.match(html, /weekly applications completed/);
@@ -42,6 +43,6 @@ test("server-renders the command center shell", async () => {
     "Daily priorities should precede the morning schedule");
   assert.match(html, /Personalized daily recommendations/);
   assert.match(html, /Milestone 5D · focused workspaces/);
-  assert.match(html, /six deliberate views/i);
+  assert.match(html, /seven deliberate views/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });

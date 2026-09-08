@@ -12,7 +12,7 @@ type OutreachStatus = "PLANNED" | "SENT" | "RESPONDED" | "REFERRED" | "DECLINED"
 type OutreachType = "REFERRAL_REQUEST" | "INTRODUCTION_REQUEST" | "RECRUITER_MESSAGE" | "FOLLOW_UP";
 type OutreachTimingFilter = "ALL" | "OVERDUE" | "NEXT_SEVEN_DAYS" | "UNSCHEDULED";
 type OutreachSort = "URGENCY" | "FOLLOW_UP" | "RECENT" | "COMPANY";
-type WorkspaceView = "overview" | "opportunities" | "outreach" | "skills" | "preparation" | "reviews";
+type WorkspaceView = "overview" | "opportunities" | "outreach" | "skills" | "preparation" | "reviews" | "settings";
 
 type ActionItem = {
   applicationId: string; companyName: string; roleTitle: string; stage: ApplicationStage;
@@ -238,6 +238,12 @@ type ApplicationTarget = { opportunity: Opportunity; preferredResumeName?: strin
 type Toast = { kind: "success" | "error"; message: string } | null;
 type DailyFocusPlan = { label: string; title: string; description: string; secondaryTitle: string; pattern: RegExp };
 type TechnologyWatchItem = { theme: string; title: string; insight: string; prompt: string; source: string; href: string };
+type LocalProfile = { displayName: string | null; targetRoles: string | null; targetLevel: string | null;
+  preferredLocations: string | null; preferredWorkModes: string | null; preferredCompanyTypes: string | null;
+  preferredCompanySizes: string | null; previousEmployers: string | null; careerGoals: string | null;
+  cultureValues: string | null; includedTechnologies: string | null; excludedTechnologies: string | null;
+  dailySearchTime: string | null; timeZone: string | null; onboardingCompleted: boolean; updatedAt: string | null; version: number };
+type InstallationStatus = { mode: string; demoMode: boolean; version: string };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8080";
 const OPENINGS_PER_PAGE = 10;
@@ -265,8 +271,8 @@ const weeklyFocusPlans: Record<number, DailyFocusPlan> = {
     description: "Work a realistic system end to end: clarify requirements, estimate scale, diagram, defend trade-offs, and handle follow-ups.",
     secondaryTitle: "Systems design mock and retrospective", pattern: /(system.?design|architecture|scalability|distributed system|mock)/i },
   5: { label: "Agentic AI delivery", title: "Governed agent project development",
-    description: "Ship a concrete governed-agent milestone with code, tests, observable evidence, and a clear portfolio outcome.",
-    secondaryTitle: "Agentic AI build, test, and evidence capture", pattern: /(releaseguard|agentic|rag|guardrail|mcp|agent)/i },
+    description: "Ship a concrete agent-workflow milestone with code, tests, observable evidence, and a clear portfolio outcome.",
+    secondaryTitle: "Agentic AI build, test, and evidence capture", pattern: /(agentic|rag|guardrail|mcp|agent)/i },
   6: { label: "AI frameworks & research", title: "Agentic AI frameworks, MCP, and RAG practice",
     description: "Build hands-on fluency with agent orchestration, tools, MCP, RAG, evaluation, and secure human approval patterns.",
     secondaryTitle: "Technical article research and outline", pattern: /(agent|langgraph|langchain|semantic kernel|mcp|rag|framework|article|writing)/i },
@@ -274,7 +280,7 @@ const weeklyFocusPlans: Record<number, DailyFocusPlan> = {
 const technologyWatchItems: TechnologyWatchItem[] = [
   { theme: "Agent observability", title: "Treat agent traces as production evidence",
     insight: "The OpenAI Agents SDK traces generations, tool calls, handoffs, guardrails, and custom events across an end-to-end workflow.",
-    prompt: "Add one trace-backed evaluation path to the agent project and make the failure signal visible in the project demo.",
+    prompt: "Add one trace-backed evaluation path to your agent project and make the failure signal visible in its demo.",
     source: "OpenAI Agents SDK", href: "https://openai.github.io/openai-agents-python/tracing/" },
   { theme: "Human-in-the-loop", title: "Durable approval is a system-design problem",
     insight: "LangGraph interrupts persist graph state and pause execution until an external decision resumes the workflow.",
@@ -292,6 +298,7 @@ const workspaceViews: { id: WorkspaceView; index: string; label: string; shortLa
   { id: "skills", index: "04", label: "Market & skills", shortLabel: "Skills", description: "Demand evidence and capability plans" },
   { id: "preparation", index: "05", label: "Preparation", shortLabel: "Prep", description: "Tracks, sprint, stories, and tasks" },
   { id: "reviews", index: "06", label: "Weekly review", shortLabel: "Review", description: "Outcomes, health, and reflection" },
+  { id: "settings", index: "07", label: "Profile", shortLabel: "Profile", description: "Local search preferences and personalization" },
 ];
 const dailyMotivations = [
   "Steady, thoughtful action compounds into the opportunity you are working toward.",
@@ -328,6 +335,12 @@ const emptySkillOverview: SkillOverview = { catalogSize: 0, proposedCount: 0, ac
 const emptyPersonalBacklog: PersonalSkillBacklogOverview = { backlogSize: 0, activeCount: 0, linkedPreparationItems: 0,
   reviewedOpeningSampleSize: 0, demandFrom: dateOffset(-89), demandTo: dateOffset(0), items: [] };
 const emptyLinkedInOverview: LinkedInOverview = { totalConnections: 0, latestImport: null };
+const emptyProfile: LocalProfile = { displayName: null, targetRoles: null, targetLevel: null, preferredLocations: null,
+  preferredWorkModes: null, preferredCompanyTypes: null, preferredCompanySizes: null, previousEmployers: null,
+  careerGoals: null, cultureValues: null, includedTechnologies: null, excludedTechnologies: null,
+  dailySearchTime: "08:00", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, onboardingCompleted: false,
+  updatedAt: null, version: 0 };
+const defaultInstallation: InstallationStatus = { mode: "PERSONAL", demoMode: false, version: "1.0.0" };
 
 function dateOffset(days: number) {
   const date = new Date();
@@ -361,14 +374,14 @@ const demoActions: DailyActionDay = {
   date: "2026-08-20",
   actions: [
     { id: "demo-1", actionDate: "2026-08-20", priorityRank: 1, status: "TODO", opportunityId: null,
-      companyName: "Sonatype", roleTitle: "Senior Software Engineer - Data", updatedAt: "2026-08-20T08:00:00+05:30",
-      actionText: "Apply to Sonatype first using the Data Platforms & Streaming Systems resume." },
+      companyName: "Northstar Systems", roleTitle: "Senior Software Engineer - Data", updatedAt: "2026-08-20T08:00:00+05:30",
+      actionText: "Review the Northstar Systems role using the Data Platforms & Streaming Systems resume." },
     { id: "demo-2", actionDate: "2026-08-20", priorityRank: 2, status: "TODO", opportunityId: null,
-      companyName: "Yext", roleTitle: "Senior Cloud Security Engineer", updatedAt: "2026-08-20T08:00:00+05:30",
-      actionText: "Seek a Yext referral and use the Security & Privacy Platforms resume." },
+      companyName: "Fictional Cloud Labs", roleTitle: "Senior Cloud Security Engineer", updatedAt: "2026-08-20T08:00:00+05:30",
+      actionText: "Map a referral path and use the Security & Privacy Platforms resume." },
     { id: "demo-3", actionDate: "2026-08-20", priorityRank: 3, status: "TODO", opportunityId: null,
-      companyName: "GHX", roleTitle: "Senior Software Engineer", updatedAt: "2026-08-20T08:00:00+05:30",
-      actionText: "Submit GHX as the fast secondary application with light Java/Spring/AWS tailoring." },
+      companyName: "Acme Health Exchange", roleTitle: "Senior Software Engineer", updatedAt: "2026-08-20T08:00:00+05:30",
+      actionText: "Prepare a secondary application with light role-specific tailoring." },
   ],
 };
 
@@ -393,8 +406,8 @@ const referralChannels: { value: ReferralChannel; index: string; label: string; 
   { value: "EMAIL", index: "06", label: "Direct channels", description: "Email, WhatsApp, or introductions" },
 ];
 const linkedInPathSearches: { value: LinkedInPathSearch; label: string; description: string }[] = [
-  { value: "ALUMNI", label: "Alumni network", description: "Target-company employees from schools you attended" },
-  { value: "FORMER_COLLEAGUE", label: "Former colleagues", description: "Target-company employees with previous-employer overlap" },
+  { value: "ALUMNI", label: "Alumni network", description: "Apply your school filters to target-company employees" },
+  { value: "FORMER_COLLEAGUE", label: "Former colleagues", description: "Uses the employers saved in your local profile" },
   { value: "RECRUITER", label: "Recruiters", description: "Recruiting and talent partners at the opening company" },
   { value: "ENGINEERING_MANAGER", label: "Engineering managers", description: "Engineering managers and directors near the target domain" },
   { value: "ENGINEER", label: "Engineers", description: "Engineers working in adjacent platform or product areas" },
@@ -531,6 +544,10 @@ export default function Home() {
   const [applicationFollowUpTarget, setApplicationFollowUpTarget] = useState<ActionItem | null>(null);
   const [outreachFollowUpTarget, setOutreachFollowUpTarget] = useState<Outreach | null>(null);
   const [currentApplicationFollowUpPage, setCurrentApplicationFollowUpPage] = useState(1);
+  const [profile, setProfile] = useState<LocalProfile>(emptyProfile);
+  const [installation, setInstallation] = useState<InstallationStatus>(defaultInstallation);
+  const [profileSetupOpen, setProfileSetupOpen] = useState(false);
+  const profilePrompted = useRef(false);
 
   const loadMarketSignals = useCallback(async () => {
     if (!connected) return;
@@ -544,7 +561,7 @@ export default function Home() {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextDashboard, nextResumes, nextApplications, nextFeed, nextArchivedFeed, nextActions, nextImports, nextContacts, nextOutreach, nextPreparation, nextCandidates, nextSkills, nextBacklog, nextLinkedIn, nextInbox, nextWeeklyReviews, nextMonthlyProgress, nextCalendarEvents, nextCalendarReminders] = await Promise.all([
+      const [nextDashboard, nextResumes, nextApplications, nextFeed, nextArchivedFeed, nextActions, nextImports, nextContacts, nextOutreach, nextPreparation, nextCandidates, nextSkills, nextBacklog, nextLinkedIn, nextInbox, nextWeeklyReviews, nextMonthlyProgress, nextCalendarEvents, nextCalendarReminders, nextProfile, nextInstallation] = await Promise.all([
         api<Dashboard>("/api/v1/dashboard/morning"),
         api<ResumeVariant[]>("/api/v1/resumes"),
         api<ApplicationRecord[]>("/api/v1/applications"),
@@ -564,6 +581,8 @@ export default function Home() {
         api<MonthlyProgress>("/api/v1/reviews/weekly/monthly"),
         api<CalendarEvent[]>("/api/v1/calendar/events"),
         api<CalendarEvent[]>("/api/v1/calendar/reminders/due"),
+        api<LocalProfile>("/api/v1/profile"),
+        api<InstallationStatus>("/api/v1/installation"),
       ]);
       setDashboard(nextDashboard); setResumes(nextResumes); setApplications(nextApplications); setFeed(nextFeed); setArchivedFeed(nextArchivedFeed);
       setDailyActions(nextActions); setImports(nextImports); setContacts(nextContacts);
@@ -578,6 +597,12 @@ export default function Home() {
       setMonthlyProgress(nextMonthlyProgress);
       setCalendarEvents(nextCalendarEvents);
       setDueCalendarReminders(nextCalendarReminders);
+      setProfile(nextProfile);
+      setInstallation(nextInstallation);
+      if (!nextProfile.onboardingCompleted && !profilePrompted.current) {
+        profilePrompted.current = true;
+        setProfileSetupOpen(true);
+      }
     } catch { setConnected(false); } finally { setLoading(false); }
   }, []);
 
@@ -1176,9 +1201,11 @@ export default function Home() {
 
       <section className="workspace">
         <div className="content-wrap">
+          {installation.demoMode && <div className="demo-mode-banner" role="status"><strong>Synthetic demo mode</strong>
+            <span>All included people, companies, and activity are fictional. Use a new local folder with empty mode when you are ready for personal data.</span></div>}
           {activeWorkspace === "overview" && <div className="workspace-page overview-page" id="overview">
           <section className="hero">
-            <div className="hero-greeting"><p className="eyebrow">Morning command center</p><h1>Good morning, there.</h1>
+            <div className="hero-greeting"><p className="eyebrow">Morning command center</p><h1>Good morning, {profile.displayName || "there"}.</h1>
               <div className="daily-motivation"><span>Daily perspective</span><blockquote>“{dailyMotivation}”</blockquote></div></div>
             <aside className="daily-briefing" aria-label="Personalized daily recommendations">
               <header><div><span>Coach’s briefing</span><strong>Recommended next move</strong></div><em>Live workspace</em></header>
@@ -1195,6 +1222,13 @@ export default function Home() {
           </section>
 
           {!connected && !loading && <div className="preview-banner" role="status"><strong>Showing representative data.</strong> Start the local database and API to use live persistence.</div>}
+          {connected && !installation.demoMode && dashboard.totalOpportunities === 0 && <section className="first-outcome-card" aria-label="First useful outcome">
+            <div><p className="eyebrow">Start with value</p><h2>Turn one real opening into a clear next action.</h2>
+              <p>Add or import one role, review its evidence, then choose whether to shortlist, seek a referral, or skip it. You can expand the system after that first decision.</p></div>
+            <div className="first-outcome-steps"><span><b>1</b>Save your search profile</span><span><b>2</b>Add one opening</span><span><b>3</b>Choose the next action</span></div>
+            <div className="first-outcome-actions"><button className="secondary-button" type="button" onClick={() => setProfileSetupOpen(true)}>Edit profile</button>
+              <a className="primary-button" href="#opportunities">Add the first opening</a></div>
+          </section>}
 
           <section className="overview-operating-row" aria-label="Daily priorities, weekly applications, and pipeline health">
             <section className="daily-workspace">
@@ -1439,7 +1473,7 @@ export default function Home() {
                   </div>
                 </header>
                 <div className="linkedin-path-search-grid">{linkedInPathSearches.map((path) =>
-                  <a className="linkedin-path-search-card" href={linkedinReferralPathSearch(referralOpening, path.value, includeLinkedInRoleKeywords)} target="_blank" rel="noreferrer"
+                  <a className="linkedin-path-search-card" href={linkedinReferralPathSearch(referralOpening, path.value, includeLinkedInRoleKeywords, profile)} target="_blank" rel="noreferrer"
                     aria-label={`Search LinkedIn for ${path.label.toLowerCase()} at ${referralOpening.companyName}`} key={path.value}>
                     <span>{path.label}</span><strong>{referralOpening.companyName}</strong><small>{path.description}</small><b>Search LinkedIn ↗</b>
                   </a>)}</div>
@@ -1477,7 +1511,7 @@ export default function Home() {
                   <label><span>Message template</span><select value={messageTemplateScenario} onChange={(event) => {
                     const scenario = event.target.value as MessageTemplateScenario;
                     setMessageTemplateScenario(scenario);
-                    setMessageTemplateDraft(scenario && referralOpening ? outreachMessageTemplate(scenario, referralOpening) : "");
+                    setMessageTemplateDraft(scenario && referralOpening ? outreachMessageTemplate(scenario, referralOpening, profile) : "");
                   }}><option value="">Select a scenario…</option>
                     <optgroup label="Connection requests">{messageTemplateScenarios.filter((item) => item.group === "Connection request").map((item) =>
                       <option value={item.value} key={item.value}>Connection request · {item.label}</option>)}</optgroup>
@@ -1781,10 +1815,21 @@ export default function Home() {
           </section>
           </div>}
 
+          {activeWorkspace === "settings" && <div className="workspace-page settings-page" id="settings">
+            <WorkspaceIntro eyebrow="Local personalization" title="Profile and search preferences"
+              description="Keep role targets, work preferences, career direction, and search exclusions in your own local database." />
+            <section className="panel profile-settings-panel"><ProfileSettingsForm profile={profile} connected={connected}
+              onSaved={(saved) => { setProfile(saved); setToast({ kind: "success", message: "Local profile and search preferences saved." }); }} /></section>
+            <section className="panel automation-proposal"><PanelHeader eyebrow="Suggested operating cadence" title="Daily high-fit opening discovery" />
+              <p>Start with a daily 8:00 AM local-time search that writes a reviewed workbook into <code>daily-high-fit-job-roles</code>. Keep collection separate from application or outreach actions.</p>
+              <div><a className="secondary-button" href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md" target="_blank" rel="noreferrer">Open Codex workflow guide ↗</a>
+                <a className="text-button" href="#opportunities">Review imported openings</a></div></section>
+          </div>}
+
           {activeWorkspace === "overview" && <section className="roadmap-strip" id="roadmap">
-            <div><p className="eyebrow">Milestone 5D · focused workspaces</p><h2>One command center, six deliberate views, and less cognitive overhead.</h2></div>
+            <div><p className="eyebrow">Milestone 5D · focused workspaces</p><h2>One command center, seven deliberate views, and less cognitive overhead.</h2></div>
             <div className="roadmap-items"><span><b>LIVE</b> Executive summary</span><span><b>LIVE</b> Opportunity intake</span>
-              <span><b>LIVE</b> Network execution</span><span><b>LIVE</b> Market strategy</span><span><b>LIVE</b> Sprint preparation</span><span><b>LIVE</b> Weekly review</span></div>
+              <span><b>LIVE</b> Network execution</span><span><b>LIVE</b> Market strategy</span><span><b>LIVE</b> Sprint preparation</span><span><b>LIVE</b> Weekly review</span><span><b>LIVE</b> Local profile</span></div>
           </section>}
         </div>
       </section>
@@ -1792,6 +1837,11 @@ export default function Home() {
       {opportunityModal && <OpportunityModal connected={connected} onClose={() => setOpportunityModal(false)}
         onSaved={async () => { setOpportunityModal(false); setToast({ kind: "success", message: "Opportunity added to your inbox." }); await refresh(); }}
         onError={(message) => setToast({ kind: "error", message })} />}
+      {profileSetupOpen && <Modal title="Personalize your local command center" subtitle="These preferences stay in your local PostgreSQL database." onClose={() => setProfileSetupOpen(false)} wide>
+        <ProfileSettingsForm profile={profile} connected={connected} onboarding onSaved={(saved) => {
+          setProfile(saved); setProfileSetupOpen(false); setToast({ kind: "success", message: "Profile saved. Add one opening next to reach your first useful outcome." });
+        }} />
+      </Modal>}
       {inboxIntakeOpen && <InboxIntakeModal onClose={() => setInboxIntakeOpen(false)}
         onSaved={async (result) => { setInboxIntakeOpen(false); setToast({ kind: "success", message: result.replayed
           ? "That exact source was already captured; the existing review item is shown."
@@ -1872,6 +1922,51 @@ export default function Home() {
       {toast && <div className={`toast ${toast.kind}`} role="status">{toast.message}</div>}
     </main>
   );
+}
+
+function ProfileSettingsForm({ profile, connected, onboarding = false, onSaved }: {
+  profile: LocalProfile; connected: boolean; onboarding?: boolean; onSaved: (profile: LocalProfile) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError(null);
+    const data = new FormData(event.currentTarget);
+    const value = (name: string) => String(data.get(name) ?? "").trim() || null;
+    try {
+      const saved = await api<LocalProfile>("/api/v1/profile", { method: "PUT", body: JSON.stringify({
+        displayName: value("displayName"), targetRoles: value("targetRoles"), targetLevel: value("targetLevel"),
+        preferredLocations: value("preferredLocations"), preferredWorkModes: value("preferredWorkModes"),
+        preferredCompanyTypes: value("preferredCompanyTypes"), preferredCompanySizes: value("preferredCompanySizes"),
+        previousEmployers: value("previousEmployers"), careerGoals: value("careerGoals"), cultureValues: value("cultureValues"),
+        includedTechnologies: value("includedTechnologies"), excludedTechnologies: value("excludedTechnologies"),
+        dailySearchTime: value("dailySearchTime"), timeZone: value("timeZone"), onboardingCompleted: true,
+      }) });
+      onSaved(saved);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the local profile."); }
+    finally { setSaving(false); }
+  }
+  return <form className="profile-settings-form" onSubmit={save}>
+    {onboarding && <div className="profile-onboarding-intro"><span>About 2 minutes</span><strong>Start with enough context to rank one opening well.</strong>
+      <p>You can leave optional fields blank and refine them later from Profile.</p></div>}
+    <div className="form-grid"><Field label="Your name"><input name="displayName" required defaultValue={profile.displayName ?? ""} placeholder="Alex" /></Field>
+      <Field label="Target level"><input name="targetLevel" defaultValue={profile.targetLevel ?? ""} placeholder="Staff / Senior Staff" /></Field></div>
+    <Field label="Target roles"><textarea name="targetRoles" rows={2} defaultValue={profile.targetRoles ?? ""} placeholder="Staff Software Engineer, Platform Engineering Lead" /></Field>
+    <div className="form-grid"><Field label="Preferred locations"><input name="preferredLocations" defaultValue={profile.preferredLocations ?? ""} placeholder="Remote, Bengaluru, London" /></Field>
+      <Field label="Work modes"><input name="preferredWorkModes" defaultValue={profile.preferredWorkModes ?? ""} placeholder="Remote, hybrid" /></Field></div>
+    <div className="form-grid"><Field label="Company types"><input name="preferredCompanyTypes" defaultValue={profile.preferredCompanyTypes ?? ""} placeholder="Product, infrastructure, developer tools" /></Field>
+      <Field label="Company sizes"><input name="preferredCompanySizes" defaultValue={profile.preferredCompanySizes ?? ""} placeholder="200–5,000 employees" /></Field></div>
+    <Field label="Previous employers"><input name="previousEmployers" defaultValue={profile.previousEmployers ?? ""} placeholder="Comma-separated; used only to build local referral searches" /></Field>
+    <Field label="Long-term career direction"><textarea name="careerGoals" rows={3} defaultValue={profile.careerGoals ?? ""} placeholder="The scope, influence, and technical direction you want to grow toward" /></Field>
+    <Field label="Culture and values"><textarea name="cultureValues" rows={2} defaultValue={profile.cultureValues ?? ""} placeholder="Examples: engineering rigor, autonomy, customer empathy" /></Field>
+    <div className="form-grid"><Field label="Technologies to emphasize"><textarea name="includedTechnologies" rows={2} defaultValue={profile.includedTechnologies ?? ""} placeholder="Distributed systems, Java, data platforms" /></Field>
+      <Field label="Technologies to exclude"><textarea name="excludedTechnologies" rows={2} defaultValue={profile.excludedTechnologies ?? ""} placeholder="Technologies or domains you do not want" /></Field></div>
+    <div className="form-grid"><Field label="Daily search time"><input name="dailySearchTime" type="time" defaultValue={profile.dailySearchTime ?? "08:00"} /></Field>
+      <Field label="Time zone"><input name="timeZone" defaultValue={profile.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} /></Field></div>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="profile-form-actions"><p>Stored locally. Nothing is sent to a hosted profile service.</p>
+      <button className="primary-button" disabled={!connected || saving}>{saving ? "Saving…" : onboarding ? "Save and continue" : "Save local profile"}</button></div>
+  </form>;
 }
 
 function MetricCard({ label, value, note, tone }: { label: string; value: number; note: string; tone: string }) {
@@ -2516,7 +2611,7 @@ function InboxIntakeModal({ onClose, onSaved, onError }: { onClose: () => void; 
       <label className="field"><span>{sourceFilename ? `Loaded content · ${sourceFilename}` : "Source content"}</span><textarea rows={13} required value={content}
         onChange={(event) => setContent(event.target.value)} placeholder={sourceType === "PASTED_JSON"
           ? `{"company":"Example","title":"Senior Engineer","url":"https://…"}`
-          : "Company: Example\nTitle: Senior Engineer\nLocation: Hyderabad\nWork mode: Hybrid\nURL: https://…\nDescription:\nBuild reliable services…"} /></label>
+          : "Company: Example\nTitle: Senior Engineer\nLocation: Remote\nWork mode: Remote\nURL: https://…\nDescription:\nBuild reliable services…"} /></label>
       <div className="inbox-format-help"><strong>Accepted field names</strong><span>company, title, location, work mode, source, job/requisition ID, URL, and description. JSON may contain one object, an array, or a jobs/opportunities/items collection.</span></div>
       <div className="modal-actions"><button type="button" className="text-button" onClick={onClose}>Cancel</button>
         <button type="submit" className="primary-button" disabled={saving || !content.trim()}>{saving ? "Parsing…" : "Add to review queue"}</button></div>
@@ -2804,7 +2899,7 @@ function OpportunityModal({ connected, onClose, onSaved, onError }: { connected:
   return <Modal title="Add an opportunity" subtitle="Capture the evidence now; enrich it as you review." onClose={onClose}>
     <form className="modal-form" onSubmit={(event) => void submit(event)}>
       <div className="form-grid"><Field label="Company"><input name="companyName" required /></Field><Field label="Role title"><input name="roleTitle" required /></Field></div>
-      <div className="form-grid"><Field label="Location"><input name="location" placeholder="Hyderabad" /></Field><Field label="Work mode"><select name="workMode" defaultValue="HYBRID"><option>HYBRID</option><option>REMOTE</option><option>ONSITE</option><option>UNSPECIFIED</option></select></Field></div>
+      <div className="form-grid"><Field label="Location"><input name="location" placeholder="Remote or city" /></Field><Field label="Work mode"><select name="workMode" defaultValue="HYBRID"><option>HYBRID</option><option>REMOTE</option><option>ONSITE</option><option>UNSPECIFIED</option></select></Field></div>
       <div className="form-grid"><Field label="Source"><input name="sourceName" placeholder="LinkedIn, referral, daily brief…" /></Field><Field label="Job URL"><input name="sourceUrl" type="url" placeholder="https://" /></Field></div>
       <Field label="Job description or notes"><textarea name="description" rows={4} /></Field>
       <div className="form-grid"><Field label="Initial decision"><select name="decision" defaultValue="REVIEWING"><option>REVIEWING</option><option>SHORTLISTED</option><option>SKIPPED</option></select></Field><Field label="Fit score"><input name="fitScore" type="number" min="0" max="100" placeholder="0–100" /></Field></div>
@@ -3974,6 +4069,7 @@ function workspaceFromHash(hash: string): WorkspaceView {
   if (value === "skills") return "skills";
   if (value === "preparation") return "preparation";
   if (value === "reviews") return "reviews";
+  if (value === "settings" || value === "profile") return "settings";
   return "overview";
 }
 
@@ -4067,17 +4163,19 @@ function linkedinPeopleSearch(opening: Opening, degree: "FIRST" | "SECOND", incl
   const params = new URLSearchParams({ keywords, network: degree === "FIRST" ? '["F"]' : '["S"]', origin: "GLOBAL_SEARCH_HEADER" });
   return `https://www.linkedin.com/search/results/people/?${params.toString()}`;
 }
-function linkedinReferralPathSearch(opening: Opening, path: LinkedInPathSearch, includeRoleKeywords = false) {
+function linkedinReferralPathSearch(opening: Opening, path: LinkedInPathSearch, includeRoleKeywords = false, profile: LocalProfile = emptyProfile) {
   const company = quoteLinkedInTerm(opening.companyName);
+  const formerEmployers = (profile.previousEmployers ?? "").split(/[,;\n]/).map((value) => value.trim()).filter(Boolean)
+    .slice(0, 5).map(quoteLinkedInTerm).join(" OR ");
   const pathKeywords = path === "RECRUITER"
     ? `${company} AND (Recruiter OR "Talent Acquisition" OR "Talent Partner")`
     : path === "ENGINEERING_MANAGER"
       ? `${company} AND ("Engineering Manager" OR "Software Engineering Manager" OR "Director of Engineering" OR "Engineering Director")`
       : path === "ENGINEER"
         ? `${company} AND ("Software Engineer" OR "Senior Software Engineer" OR "Staff Engineer" OR "Platform Engineer")`
-    : path === "FORMER_COLLEAGUE"
-      ? `${company} AND ("Previous Employer")`
-      : `${company} AND ("Your School")`;
+    : path === "FORMER_COLLEAGUE" && formerEmployers
+      ? `${company} AND (${formerEmployers})`
+      : company;
   const keywords = includeRoleKeywords ? `${pathKeywords} AND ${quoteLinkedInTerm(linkedinRoleKeywords(opening))}` : pathKeywords;
   const params = new URLSearchParams({ keywords, origin: "GLOBAL_SEARCH_HEADER" });
   if (path === "ALUMNI" || path === "FORMER_COLLEAGUE") params.set("network", '["F","S"]');
@@ -4102,9 +4200,11 @@ function recommendationClass(value: string) {
 function openingRecommendation(opening: Opening) {
   return opening.applicationStage && opening.applicationStage !== "DRAFT" ? "Applied" : opening.recommendation;
 }
-function outreachMessageTemplate(scenario: Exclude<MessageTemplateScenario, "">, opening: Opening) {
+function outreachMessageTemplate(scenario: Exclude<MessageTemplateScenario, "">, opening: Opening, profile: LocalProfile = emptyProfile) {
   const company = opening.companyName;
   const role = opening.roleTitle;
+  const background = profile.includedTechnologies || "relevant platform and product engineering";
+  const signoff = profile.displayName || "[Your name]";
   if (scenario === "CONNECTION_SECOND_DEGREE") {
     return `Hi [Name], I’m exploring the ${role} opportunity at ${company}. My distributed-systems and cloud-platform background aligns well, and I’d value connecting and learning about your experience there. Thanks!`;
   }
@@ -4115,12 +4215,12 @@ function outreachMessageTemplate(scenario: Exclude<MessageTemplateScenario, "">,
     return `Hi [Name], we share a background at [Former company]. I’m exploring the ${role} role at ${company}, which aligns with my backend and distributed-systems experience. I’d value reconnecting and hearing your perspective. Thanks!`;
   }
   if (scenario === "CONNECTION_RECRUITER") {
-    return `Hi [Name], I saw the ${role} opening at ${company}. My background in distributed systems and cloud platforms appears relevant, and I’d value connecting to learn more. Thanks!`;
+    return `Hi [Name], I saw the ${role} opening at ${company}. My background in ${background} appears relevant, and I’d value connecting and discussing the team’s needs. Thanks!`;
   }
   if (scenario === "INMAIL_RECRUITER") {
-    return `Subject: ${role} at ${company}\n\nHi [Name],\n\nI’m reaching out regarding the ${role} opportunity at ${company}. My background includes Java-based distributed systems, cloud platforms, and reliable production services.\n\n[Add 1–2 role-specific achievements that directly match the team’s requirements.]\n\nThe opportunity looks closely aligned with my background, and I would appreciate your consideration or guidance on the most relevant next step. I’ve attached my resume for review.\n\nBest,\n[Your name]`;
+    return `Subject: ${role} at ${company}\n\nHi [Name],\n\nI’m reaching out regarding the ${role} opportunity at ${company}. My background includes ${background}.\n\n[Add 1–2 role-specific achievements that directly match the team’s requirements.]\n\nThe opportunity looks closely aligned with my experience, and I would appreciate your guidance on the most relevant next step. I’ve attached my resume for review.\n\nBest,\n${signoff}`;
   }
-  return `Hi [Name],\n\nI hope you’re doing well. I’m interested in the ${role} opportunity at ${company}, which aligns strongly with my experience in distributed systems, backend engineering, and cloud platforms.\n\n[Add a brief personal connection and 1–2 role-specific achievements.]\n\nWould you be open to reviewing the role and my resume? If you feel my background is a good match, I’d be grateful for a referral or guidance on the right person to contact. No worries at all if the role is outside your area.\n\nThanks,\n[Your name]`;
+  return `Hi [Name],\n\nI hope you’re doing well. I’m interested in the ${role} opportunity at ${company}, which appears aligned with my background in ${background}.\n\n[Add a brief personal connection and 1–2 role-specific achievements.]\n\nWould you be open to reviewing the role and my resume? If you feel my background is a good match, I’d be grateful for a referral or guidance on the right person to contact. No worries at all if the role is outside your area.\n\nThanks,\n${signoff}`;
 }
 function formatDate(value: string) { return new Date(`${value}T08:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); }
 function formatScheduleDate(value: string) {

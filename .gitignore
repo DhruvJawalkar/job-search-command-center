@@ -14,6 +14,7 @@ frontend/.vinext/
 **/.wrangler/
 .pnpm-store/
 .codex-tmp/
+.release-test/
 **/.codex/
 **/.codex-tmp/
 
@@ -65,19 +66,14 @@ cookies.txt
 
 # Local research, exports, preparation artifacts, and generated reference files
 daily-high-fit-job-roles/
-docs/
 linkedin-data-import/
 *LinkedIn*Export*.zip*
 *linkedin*data*export*.zip*
 linkedin-data-import*.zip*
 preparation-workspace/
-Local_Target_Companies.xlsx
-Agent_Project_Blueprint.pdf
 AI_Technical_Skill_Gap_Backlog.md
 
 # Personal resume files accidentally copied outside application-resumes/
-**/Submitted_Resume_*.pdf
-**/Submitted_Resume_*.docx
 
 # Operating-system metadata
 .DS_Store

@@ -1,29 +1,34 @@
-# Security boundary
+# Security policy and local trust boundary
 
 ## Supported use
 
-V1 is a trusted, single-user application for one local Windows workstation. The portal, API, and PostgreSQL port bind to `127.0.0.1` by default. The product is not approved for LAN access, public hosting, shared accounts, or multi-user use.
+V1 is a trusted, single-user application for one local Windows, macOS, or Linux workstation. Docker publishes the portal, API, and PostgreSQL only on `127.0.0.1`.
 
-There is no application authentication or authorization layer in V1. CORS narrows browser origins but is not authentication and does not protect the API from other local processes.
+There is no application authentication or authorization layer. Do not expose V1 through a LAN bind, tunnel, reverse proxy, port-forward, shared host, or public deployment. CORS narrows browser origins; it is not authentication and does not protect the API from other processes on the same computer.
 
 ## Private data
 
-Keep these outside Git and include them only in private, access-controlled backups:
+The local workspace selected during setup is outside the repository and may contain:
 
-- `.env*` credentials and provider tokens;
-- application resumes and job-description evidence;
-- LinkedIn exports, contact/outreach notes, and account archives;
-- daily opening workbooks, target-company files, preparation resources, and personal skill plans;
-- scratch notes, PostgreSQL dumps, backup manifests, runtime logs, browser state, and future agent logs.
+- the generated `.env` and database password;
+- PostgreSQL files and private backups;
+- resumes and preserved job descriptions;
+- LinkedIn exports, contacts, outreach notes, and account archives;
+- daily opening workbooks, target-company files, preparation resources, and skill plans; and
+- scratch notes and runtime logs.
 
-The repository contains `.env.example` with local development placeholders only. Replace defaults through ignored local environment state if the machine is shared or the trust boundary changes.
+Keep that folder out of source control and unencrypted cloud sharing. Synthetic demo data should use its own local workspace folder so it never becomes mixed with personal records.
 
-## Existing evidence versus an audit log
+## Evidence is not a tamper-resistant audit log
 
-Application stage events, import batches and hashes, immutable application artifacts, assistance runs/decisions, weekly-review revisions, and record timestamps provide useful workflow evidence. They are not a complete or tamper-resistant audit trail: V1 does not identify an authenticated actor, log every read/edit, or prevent a local administrator from changing PostgreSQL or files directly.
+Application stage events, import hashes, immutable application artifacts, assistance decisions, weekly-review revisions, and timestamps provide useful workflow evidence. V1 does not identify an authenticated actor, log every read/edit, or prevent a local administrator from changing files or PostgreSQL directly.
+
+## Reporting a vulnerability
+
+Open a private security advisory in the official GitHub repository when available. Do not include real resumes, credentials, account exports, personal contacts, or database contents in an issue. For non-sensitive defects, use the public issue tracker.
 
 ## Operational response
 
-If exposure or credential leakage is suspected, stop the portal/API, remove any tunnel or broad listener, rotate affected credentials at their provider, inspect recent application/import/assistance evidence, and restore only from a verified private snapshot when necessary. Follow `scripts/RECOVERY.md`; never restore over the live database as a diagnostic experiment.
+If exposure or credential leakage is suspected, stop the Compose stack, remove any tunnel or broad listener, rotate affected credentials, and restore only from a verified private snapshot. Never restore over the live database merely to diagnose a problem.
 
-Run `scripts/Test-ReleaseGate.ps1` before a V1 release or material runtime change. Run `scripts/Test-FreshSetup.ps1` when validating a clean installation against disposable infrastructure.
+Run the release checks in [Development](docs/DEVELOPMENT.md) before distributing a modified build.

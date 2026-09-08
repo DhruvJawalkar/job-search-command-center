@@ -35,6 +35,7 @@ management:
 
 app:
   seed-demo: ${APP_SEED_DEMO:false}
+  demo-mode: ${APP_DEMO_MODE:false}
   application-artifacts:
     folder: ${APP_APPLICATION_RESUMES_FOLDER:../application-resumes}
   notes:
@@ -53,6 +54,6 @@ app:
   cohorts:
     company-targets:
       folder: ${APP_COMPANY_TARGETS_FOLDER:..}
-      filename-pattern: ${APP_COMPANY_TARGETS_PATTERN:*_Hyderabad_Top_100_Target_Companies.xlsx}
+      filename-pattern: ${APP_COMPANY_TARGETS_PATTERN:*_Target_Companies.xlsx}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}

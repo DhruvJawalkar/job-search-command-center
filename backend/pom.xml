@@ -13,7 +13,7 @@
 
     <groupId>dev.dhruv</groupId>
     <artifactId>job-search-command-center</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>Job Search Command Center</name>
     <description>Local-first job search, preparation, and accountability system</description>
 

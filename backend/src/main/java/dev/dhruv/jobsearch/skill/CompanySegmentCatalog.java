@@ -25,7 +25,7 @@ class CompanySegmentCatalog {
 
     CompanySegmentCatalog(
             @Value("${app.cohorts.company-targets.folder:..}") String folder,
-            @Value("${app.cohorts.company-targets.filename-pattern:*_Hyderabad_Top_100_Target_Companies.xlsx}") String pattern) {
+            @Value("${app.cohorts.company-targets.filename-pattern:*_Target_Companies.xlsx}") String pattern) {
         this.segments = load(Path.of(folder).toAbsolutePath().normalize(), pattern);
     }
 

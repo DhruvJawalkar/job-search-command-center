@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import dev.dhruv.jobsearch.application.ApplicationStage;
 import dev.dhruv.jobsearch.application.JobApplication;
@@ -27,21 +28,25 @@ public class DashboardService {
 
     private final JobOpportunityRepository opportunityRepository;
     private final JobApplicationRepository applicationRepository;
+    private final boolean demoMode;
 
     public DashboardService(JobOpportunityRepository opportunityRepository,
-            JobApplicationRepository applicationRepository) {
+            JobApplicationRepository applicationRepository,
+            @Value("${app.demo-mode:false}") boolean demoMode) {
         this.opportunityRepository = opportunityRepository;
         this.applicationRepository = applicationRepository;
+        this.demoMode = demoMode;
     }
 
     @Transactional(readOnly = true)
     public MorningDashboard morning() {
-        List<JobOpportunity> opportunities = opportunityRepository.findByDemoFalseOrderByDiscoveredAtDesc();
+        List<JobOpportunity> opportunities = demoMode ? opportunityRepository.findAllByOrderByDiscoveredAtDesc()
+                : opportunityRepository.findByDemoFalseOrderByDiscoveredAtDesc();
         List<JobOpportunity> activeOpportunities = opportunities.stream()
                 .filter(opportunity -> opportunity.getStatus() != OpportunityStatus.ARCHIVED)
                 .toList();
         List<JobApplication> applications = applicationRepository.findAllByOrderByUpdatedAtDesc().stream()
-                .filter(application -> !application.getOpportunity().isDemo())
+                .filter(application -> demoMode || !application.getOpportunity().isDemo())
                 .toList();
         Instant actionWindow = Instant.now().plusSeconds(48 * 60 * 60);
 
@@ -78,7 +83,8 @@ public class DashboardService {
                 .toList();
 
         long activeApplications = applications.stream().filter(application -> !application.getStage().isTerminal()).count();
-        long shortlisted = opportunityRepository.countByStatusAndDemoFalse(OpportunityStatus.SHORTLISTED);
+        long shortlisted = activeOpportunities.stream()
+                .filter(opportunity -> opportunity.getStatus() == OpportunityStatus.SHORTLISTED).count();
         LocalDate weekStart = LocalDate.now(USER_ZONE).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         long appliedThisWeek = applications.stream()
                 .filter(application -> application.getAppliedOn() != null)

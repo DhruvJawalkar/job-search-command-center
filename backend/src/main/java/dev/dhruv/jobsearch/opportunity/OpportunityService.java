@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import dev.dhruv.jobsearch.shared.NotFoundException;
 
@@ -17,9 +18,12 @@ import dev.dhruv.jobsearch.shared.NotFoundException;
 public class OpportunityService {
 
     private final JobOpportunityRepository repository;
+    private final boolean demoMode;
 
-    public OpportunityService(JobOpportunityRepository repository) {
+    public OpportunityService(JobOpportunityRepository repository,
+            @Value("${app.demo-mode:false}") boolean demoMode) {
         this.repository = repository;
+        this.demoMode = demoMode;
     }
 
     @Transactional
@@ -42,7 +46,8 @@ public class OpportunityService {
 
     @Transactional(readOnly = true)
     public List<JobOpportunity> list() {
-        return repository.findByDemoFalseOrderByDiscoveredAtDesc();
+        return demoMode ? repository.findAllByOrderByDiscoveredAtDesc()
+                : repository.findByDemoFalseOrderByDiscoveredAtDesc();
     }
 
     @Transactional(readOnly = true)

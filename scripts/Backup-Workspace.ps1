@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = (Split-Path $PSScriptRoot -Parent),
-    [string]$Container = 'job-search-postgres',
+    [string]$Container = 'job-search-command-center-postgres-1',
     [string]$Database = 'job_search',
     [string]$DatabaseUser = 'job_search',
     [string]$SourceRevision = 'unrecorded (source and runtime hashes preserved)',
