@@ -20,7 +20,7 @@ macOS or Linux:
 ./setup.sh
 ```
 
-The guided script explains the setup, proposes the checked-out repository folder as the local workspace, offers empty or synthetic-demo data, creates the expected Git-ignored folders and a generated database password, builds the containers, and waits for the app to become healthy. You can enter another workspace path when prompted. Open `http://127.0.0.1:3000` when it finishes.
+The guided script explains the setup, proposes the Git-ignored `workspace` folder inside the checked-out repository for user-specific data, offers empty or synthetic-demo data, creates the expected folders and a generated database password, builds the containers, and waits for the app to become healthy. You can enter another workspace path when prompted. Open `http://127.0.0.1:3000` when it finishes.
 
 The Windows helper exists because Docker Compose alone does not choose a safe data location, create the local folder contract, generate secrets, explain the demo choice, check prerequisites, or wait for a healthy first start. It performs the same guided orchestration as `setup.sh`; the application itself remains containerized.
 

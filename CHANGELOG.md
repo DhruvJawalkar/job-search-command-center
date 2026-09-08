@@ -7,7 +7,7 @@ All notable public releases are documented here.
 - Published the reconstructed, accepted V1 product as a clean public history.
 - Added Docker-packaged PostgreSQL, API, and portal services with loopback-only ports and unprivileged runtime users.
 - Added guided PowerShell and shell installers with a private local-folder contract, generated database credentials, health checks, and explicit empty/demo selection.
-- Made the checked-out repository folder the default local workspace while preserving an explicit custom-folder option and preventing local setup from overwriting the project README.
+- Added a Git-ignored `workspace` folder inside the checkout as the clear default boundary for user-specific data, while preserving an explicit custom-folder option and preventing local setup from overwriting the project README.
 - Added persistent local profile and onboarding for role, level, location, company, career, values, and technology preferences.
 - Added opt-in fictional demo data spanning ranked openings, daily actions, an outreach plan, and a preparation sprint, with a persistent in-app disclosure and a separate empty-data first-use journey.
 - Added an import-ready fictional daily brief with ten ranked openings and three linked actions so users can inspect and practice the file-import workflow.

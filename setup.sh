@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 COMPOSE_FILE="$SCRIPT_DIR/compose.yaml"
-DEFAULT_FOLDER="$SCRIPT_DIR"
+DEFAULT_FOLDER="$SCRIPT_DIR/workspace"
 PROJECT_FOLDER=""
 MODE=""
 
@@ -25,7 +25,7 @@ printf '%s\n' 'Expected time: 5–10 minutes on the first run; later starts are 
 printf '%s\n\n' 'Needed: Docker Desktop or Docker Engine with Compose and about 3 GB of free disk space.'
 
 if [ -z "$PROJECT_FOLDER" ]; then
-  printf 'Local workspace folder [%s]: ' "$DEFAULT_FOLDER"
+  printf 'Workspace folder [%s]: ' "$DEFAULT_FOLDER"
   read -r PROJECT_FOLDER
   PROJECT_FOLDER=${PROJECT_FOLDER:-$DEFAULT_FOLDER}
 fi
@@ -74,6 +74,6 @@ printf '\nBuilding and starting the local app…\n'
 docker compose --project-name job-search-command-center --env-file "$ENV_FILE" --file "$COMPOSE_FILE" up --detach --build --wait
 
 printf '\nSetup complete.\n'
-printf 'Local workspace: %s\n' "$PROJECT_FOLDER"
+printf 'Workspace folder: %s\n' "$PROJECT_FOLDER"
 printf '%s\n' 'App: http://127.0.0.1:3000' 'API health: http://127.0.0.1:8080/actuator/health'
 printf '%s\n' 'In Codex, ask: “Open my local Job Search Command Center and guide me through the first useful outcome.”'

@@ -23,7 +23,7 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-The script previews its actions, proposes the checked-out repository folder as the local workspace, and lets you start empty or with synthetic demo content. Press Enter to accept that folder or enter another path. Generated configuration and data folders in the repository are Git-ignored. The first build normally takes 5–10 minutes depending on network and machine speed.
+The script previews its actions, proposes the Git-ignored `workspace` folder inside the checked-out repository for user-specific data, and lets you start empty or with synthetic demo content. Press Enter to accept that folder or enter another path. The first build normally takes 5–10 minutes depending on network and machine speed.
 
 On Linux, the script records your numeric user and group IDs so the API can write only to the selected bind-mounted workspace without running as root. The Windows helper records a Docker Desktop-compatible unprivileged identity and performs the same setup contract as the shell script.
 

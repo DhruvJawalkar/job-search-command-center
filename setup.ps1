@@ -11,7 +11,7 @@ if ($Demo -and $Empty) { throw 'Choose either -Demo or -Empty, not both.' }
 
 $sourceRoot = Split-Path $MyInvocation.MyCommand.Path -Parent
 $composeFile = Join-Path $sourceRoot 'compose.yaml'
-$defaultFolder = $sourceRoot
+$defaultFolder = Join-Path $sourceRoot 'workspace'
 
 Write-Host ''
 Write-Host 'Job Search Command Center — local setup' -ForegroundColor Cyan
@@ -24,7 +24,7 @@ Write-Host 'Needed: Docker Desktop with Docker Compose and about 3 GB of free di
 Write-Host ''
 
 if ([string]::IsNullOrWhiteSpace($ProjectFolder)) {
-    $answer = Read-Host "Local workspace folder [$defaultFolder]"
+    $answer = Read-Host "Workspace folder [$defaultFolder]"
     $ProjectFolder = if ([string]::IsNullOrWhiteSpace($answer)) { $defaultFolder } else { $answer }
 }
 $ProjectFolder = [IO.Path]::GetFullPath($ProjectFolder)
@@ -81,7 +81,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ''
 Write-Host 'Setup complete.' -ForegroundColor Green
-Write-Host "Local workspace: $ProjectFolder"
+Write-Host "Workspace folder: $ProjectFolder"
 Write-Host 'App: http://127.0.0.1:3000'
 Write-Host 'API health: http://127.0.0.1:8080/actuator/health'
 Write-Host 'In Codex, ask: “Open my local Job Search Command Center and guide me through the first useful outcome.”'
