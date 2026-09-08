@@ -32,11 +32,13 @@ id_rsa*
 id_ed25519*
 
 data/
+/postgres-data/
 application-resumes/
 /notes/
 /uploads/
 /local-data/
 /backups/
+/company-targets/
 /output/
 /tmp/
 *.log

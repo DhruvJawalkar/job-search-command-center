@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 COMPOSE_FILE="$SCRIPT_DIR/compose.yaml"
-DEFAULT_FOLDER="$PWD/job-search-command-center-local"
+DEFAULT_FOLDER="$SCRIPT_DIR"
 PROJECT_FOLDER=""
 MODE=""
 
@@ -66,7 +66,9 @@ else
   chmod 600 "$ENV_FILE"
 fi
 
-cp "$SCRIPT_DIR/docs/LOCAL_WORKSPACE_README.md" "$PROJECT_FOLDER/README.md"
+if [ "$PROJECT_FOLDER" != "$SCRIPT_DIR" ]; then
+  cp "$SCRIPT_DIR/docs/LOCAL_WORKSPACE_README.md" "$PROJECT_FOLDER/README.md"
+fi
 
 printf '\nBuilding and starting the local app…\n'
 docker compose --project-name job-search-command-center --env-file "$ENV_FILE" --file "$COMPOSE_FILE" up --detach --build --wait

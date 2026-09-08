@@ -11,7 +11,7 @@ if ($Demo -and $Empty) { throw 'Choose either -Demo or -Empty, not both.' }
 
 $sourceRoot = Split-Path $MyInvocation.MyCommand.Path -Parent
 $composeFile = Join-Path $sourceRoot 'compose.yaml'
-$defaultFolder = Join-Path (Get-Location) 'job-search-command-center-local'
+$defaultFolder = $sourceRoot
 
 Write-Host ''
 Write-Host 'Job Search Command Center — local setup' -ForegroundColor Cyan
@@ -67,7 +67,9 @@ if (Test-Path -LiteralPath $envFile) {
     ) | Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
 }
 
-Copy-Item -LiteralPath (Join-Path $sourceRoot 'docs/LOCAL_WORKSPACE_README.md') -Destination (Join-Path $ProjectFolder 'README.md') -Force
+if ($ProjectFolder -ne $sourceRoot) {
+    Copy-Item -LiteralPath (Join-Path $sourceRoot 'docs/LOCAL_WORKSPACE_README.md') -Destination (Join-Path $ProjectFolder 'README.md') -Force
+}
 
 Write-Host ''
 Write-Host 'Building and starting the local app…' -ForegroundColor Cyan
