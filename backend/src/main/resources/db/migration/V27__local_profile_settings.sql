@@ -1,0 +1,21 @@
+create table local_user_profile (
+    id uuid primary key,
+    display_name varchar(120),
+    target_roles text,
+    target_level varchar(120),
+    preferred_locations text,
+    preferred_work_modes varchar(500),
+    preferred_company_types text,
+    preferred_company_sizes varchar(500),
+    previous_employers text,
+    career_goals text,
+    culture_values text,
+    included_technologies text,
+    excluded_technologies text,
+    daily_search_time varchar(20),
+    time_zone varchar(80),
+    onboarding_completed boolean not null default false,
+    created_at timestamp with time zone not null,
+    updated_at timestamp with time zone not null,
+    version bigint not null default 0
+);
