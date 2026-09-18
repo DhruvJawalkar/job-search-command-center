@@ -1,0 +1,37 @@
+services:
+  api:
+    depends_on:
+      egress-broker:
+        condition: service_healthy
+    environment:
+      APP_CONNECTED_ENABLED: "true"
+      APP_EGRESS_BROKER_BASE_URL: http://egress-broker:8787
+      APP_EGRESS_BROKER_TOKEN: ${CONNECTED_BROKER_TOKEN:?Set a fresh CONNECTED_BROKER_TOKEN of at least 32 characters}
+      APP_OPENAI_MODEL: ${APP_OPENAI_MODEL:-}
+
+  egress-broker:
+    image: __BROKER_IMAGE__
+    user: "1000:1000"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    environment:
+      BROKER_SHARED_TOKEN: ${CONNECTED_BROKER_TOKEN:?Set a fresh CONNECTED_BROKER_TOKEN of at least 32 characters}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    networks:
+      - local_only
+      - connected_egress
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+networks:
+  connected_egress:
+    driver: bridge

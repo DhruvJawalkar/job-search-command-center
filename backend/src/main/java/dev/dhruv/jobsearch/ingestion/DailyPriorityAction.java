@@ -25,8 +25,8 @@ public class DailyPriorityAction {
     @Id
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "import_batch_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "import_batch_id")
     private ImportBatch importBatch;
 
     @ManyToOne(fetch = FetchType.LAZY)

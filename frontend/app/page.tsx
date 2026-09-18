@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
+import { DataLifecyclePanel } from "./privacy/DataLifecyclePanel";
+import { TransmissionConfirmation, type TransmissionPreview } from "./privacy/TransmissionConfirmation";
 
 type ApplicationStage =
   | "DRAFT" | "APPLIED" | "RECRUITER_SCREEN" | "INTERVIEWING" | "OFFER"
@@ -162,7 +164,8 @@ type AssistanceDecision = { id: string; decisionType: "FIELDS_APPLIED" | "SKILLS
   selectedFields: string | null; note: string | null; createdAt: string };
 type InboxAssistanceRun = { id: string; status: "RUNNING" | "COMPLETED" | "FAILED"; provider: string; model: string;
   promptVersion: string; schemaVersion: string; errorMessage: string | null; createdAt: string; completedAt: string | null;
-  inputTokens: number | null; outputTokens: number | null; suggestion: InboxSuggestion | null; decisions: AssistanceDecision[] };
+  inputTokens: number | null; outputTokens: number | null; suggestion: InboxSuggestion | null; decisions: AssistanceDecision[];
+  statelessSaveArtifact: string | null };
 type InboxAssistanceOverview = { configuration: AssistanceConfiguration; outboundContent: string;
   current: { candidateId: string; inboxItemId: string; rawPayload: string; companyName: string | null; roleTitle: string | null;
     location: string | null; workMode: string; sourceName: string | null; sourceExternalId: string | null;
@@ -252,6 +255,30 @@ type LocalProfile = { displayName: string | null; targetRoles: string | null; ta
   cultureValues: string | null; includedTechnologies: string | null; excludedTechnologies: string | null;
   dailySearchTime: string | null; timeZone: string | null; onboardingCompleted: boolean; updatedAt: string | null; version: number };
 type InstallationStatus = { mode: string; demoMode: boolean; version: string };
+type AssistanceContextMode = "STATELESS" | "SESSION_ONLY" | "TIME_BOUND";
+type PrivacyPolicy = {
+  revision: number;
+  assistanceContextMode: AssistanceContextMode;
+  derivedContextRetentionDays: 7 | 30 | 90 | null;
+  transientIngestionRetentionDays: 7 | 30;
+  connectedAssistanceEnabled: boolean;
+  consentTextVersion: string | null;
+  currentNoticeVersion: string;
+  consentAcceptedAt: string | null;
+  lastSuccessfulCleanupAt: string | null;
+  nextScheduledCleanupAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+type CleanupPreview = { category: "RETENTION_ENFORCEMENT"; policyRevision: number; assistanceContextMode: AssistanceContextMode;
+  cutoff: string; assistanceRunCount: number; assistanceDecisionCount: number; transientCutoff: string;
+  transientDatabaseRecordCount: number; auditMetadataRecordCount: number; transientFileCount: number;
+  skippedUnsafeFileCount: number; totalRecords: number;
+  previewBasis: "CURRENT_POLICY" | "PROPOSED_POLICY" };
+type CleanupResult = { id: string; policyRevision: number; category: "RETENTION_ENFORCEMENT"; cutoff: string;
+  assistanceRunCount: number; assistanceDecisionCount: number; transientCutoff: string;
+  transientDatabaseRecordCount: number; auditMetadataRecordCount: number; transientFileCount: number;
+  skippedUnsafeFileCount: number; outcome: "SUCCESS" | "PARTIAL"; createdAt: string };
 type SummaryDayPart = "MORNING" | "AFTERNOON" | "EVENING";
 type SummaryScheduleSource = "CODING" | "OPPORTUNITY" | "OUTREACH" | "SPECIALIZATION" | "APPLICATION_FOLLOW_UP" | "BREAK" | "CUSTOM" | "END_OF_DAY";
 type SummaryPrioritySource = "CODING" | "OPPORTUNITY" | "OUTREACH" | "SPECIALIZATION" | "APPLICATION_FOLLOW_UP" | "CUSTOM";
@@ -361,6 +388,12 @@ const emptyProfile: LocalProfile = { displayName: null, targetRoles: null, targe
   dailySearchTime: "08:00", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, onboardingCompleted: false,
   updatedAt: null, version: 0 };
 const defaultInstallation: InstallationStatus = { mode: "PERSONAL", demoMode: false, version: "1.0.0" };
+const defaultPrivacyPolicy: PrivacyPolicy = {
+  revision: 0, assistanceContextMode: "STATELESS", derivedContextRetentionDays: null,
+  transientIngestionRetentionDays: 7,
+  connectedAssistanceEnabled: false, consentTextVersion: null, currentNoticeVersion: "v1", consentAcceptedAt: null,
+  lastSuccessfulCleanupAt: null, nextScheduledCleanupAt: null, createdAt: null, updatedAt: null,
+};
 const defaultSummaryPreferences: SummaryPreferences = {
   scheduleBlocks: [
     { id: "coding", dayPart: "MORNING", startTime: "05:00", endTime: "07:30", source: "CODING", customTitle: null, customDetail: null },
@@ -491,6 +524,18 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function normalizePrivacyPolicy(policy: PrivacyPolicy): PrivacyPolicy {
+  const mode: AssistanceContextMode = ["STATELESS", "SESSION_ONLY", "TIME_BOUND"].includes(policy.assistanceContextMode)
+    ? policy.assistanceContextMode : "STATELESS";
+  const days = mode === "TIME_BOUND" && [7, 30, 90].includes(Number(policy.derivedContextRetentionDays))
+    ? Number(policy.derivedContextRetentionDays) as 7 | 30 | 90 : null;
+  const transientDays = [7, 30].includes(Number(policy.transientIngestionRetentionDays))
+    ? Number(policy.transientIngestionRetentionDays) as 7 | 30 : 7;
+  return { ...defaultPrivacyPolicy, ...policy, assistanceContextMode: mode, derivedContextRetentionDays: days,
+    transientIngestionRetentionDays: transientDays,
+    connectedAssistanceEnabled: Boolean(policy.connectedAssistanceEnabled) };
+}
+
 export default function Home() {
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("overview");
   const [dashboard, setDashboard] = useState<Dashboard>(demoDashboard);
@@ -554,6 +599,7 @@ export default function Home() {
   const [backlogDialog, setBacklogDialog] = useState<BacklogDialog | null>(null);
   const [skillAutomationBusy, setSkillAutomationBusy] = useState(false);
   const [liveExtractionReport, setLiveExtractionReport] = useState<LiveSkillExtractionResult | null>(null);
+  const [liveTransmission, setLiveTransmission] = useState<{ preview: TransmissionPreview; outboundSummary: string } | null>(null);
   const [linkedinImporting, setLinkedinImporting] = useState(false);
   const [selectedSkillObservationIds, setSelectedSkillObservationIds] = useState<string[]>([]);
   const [currentSkillReviewPage, setCurrentSkillReviewPage] = useState(1);
@@ -589,6 +635,10 @@ export default function Home() {
   const [currentApplicationFollowUpPage, setCurrentApplicationFollowUpPage] = useState(1);
   const [profile, setProfile] = useState<LocalProfile>(emptyProfile);
   const [installation, setInstallation] = useState<InstallationStatus>(defaultInstallation);
+  const [privacyPolicy, setPrivacyPolicy] = useState<PrivacyPolicy | null>(null);
+  const [privacyPolicyLoading, setPrivacyPolicyLoading] = useState(true);
+  const [privacyPolicyError, setPrivacyPolicyError] = useState<string | null>(null);
+  const [privacyOnboardingDismissed, setPrivacyOnboardingDismissed] = useState(false);
   const [summaryPreferences, setSummaryPreferences] = useState<SummaryPreferences>(defaultSummaryPreferences);
   const [summaryConfigurationOpen, setSummaryConfigurationOpen] = useState(false);
 
@@ -653,6 +703,15 @@ export default function Home() {
     const timer = window.setTimeout(() => void refresh(), 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    void api<PrivacyPolicy>("/api/v1/privacy-policy")
+      .then((policy) => { if (active) setPrivacyPolicy(normalizePrivacyPolicy(policy)); })
+      .catch((cause) => { if (active) setPrivacyPolicyError(cause instanceof Error ? cause.message : "Could not load the privacy policy."); })
+      .finally(() => { if (active) setPrivacyPolicyLoading(false); });
+    return () => { active = false; };
+  }, [connected]);
   useEffect(() => {
     const updateFromHash = () => setActiveWorkspace(workspaceFromHash(window.location.hash));
     updateFromHash();
@@ -1070,9 +1129,25 @@ export default function Home() {
     if (!connected || skillOverview.catalogSize === 0) return;
     setSkillAutomationBusy(true);
     try {
-      const result = await api<LiveSkillExtractionResult>("/api/v1/skills/live-extractions", {
+      const preview = await api<TransmissionPreview>("/api/v1/skills/live-extractions/preview", {
         method: "POST", body: JSON.stringify({ opportunityIds: [] }),
       });
+      const outboundSummary = trackedOpportunities.filter((item) => item.sourceUrl?.startsWith("https://")
+        && !["ARCHIVED", "SKIPPED", "EXPIRED"].includes(item.status))
+        .map((item) => `${item.companyName} · ${item.roleTitle}\n${item.sourceUrl}`).join("\n\n");
+      setLiveTransmission({ preview, outboundSummary });
+    } catch (error) {
+      setToast({ kind: "error", message: error instanceof Error ? error.message : "Could not preview the live job-page request." });
+    } finally { setSkillAutomationBusy(false); }
+  }
+
+  async function confirmSkillEvidenceExtraction(confirmationToken: string) {
+    setSkillAutomationBusy(true);
+    try {
+      const result = await api<LiveSkillExtractionResult>("/api/v1/skills/live-extractions", {
+        method: "POST", body: JSON.stringify({ opportunityIds: [], confirmationToken }),
+      });
+      setLiveTransmission(null);
       setLiveExtractionReport(result);
       setToast({ kind: result.pagesFetched > 0 ? "success" : "error", message: result.pagesFetched > 0
         ? `Fetched ${result.pagesFetched} of ${result.opportunitiesEligible} live job pages and created ${result.observationsCreated} reviewable signals.${result.fetchFailures > 0 ? ` ${result.fetchFailures} pages need manual evidence capture.` : ""}`
@@ -1921,11 +1996,16 @@ export default function Home() {
           </div>}
 
           {activeWorkspace === "settings" && <div className="workspace-page settings-page" id="settings">
-            <WorkspaceIntro eyebrow="Local personalization" title="Profile and search preferences"
-              description="Keep role targets, work preferences, career direction, and search exclusions in your own local database." />
+            <WorkspaceIntro eyebrow="Local personalization" title="Profile, privacy, and search preferences"
+              description="Control local personalization, assistant-derived context, and the role targets and preferences kept in your own database." />
             <CodexWorkflowHint />
             <section className="panel profile-settings-panel"><ProfileSettingsForm profile={profile} connected={connected}
               onSaved={(saved) => { setProfile(saved); setToast({ kind: "success", message: "Local profile and search preferences saved." }); }} /></section>
+            <PrivacySettingsPanel policy={privacyPolicy} loading={privacyPolicyLoading} error={privacyPolicyError} connected={connected}
+              onSaved={(saved, message) => { setPrivacyPolicy(saved); setPrivacyPolicyError(null); setToast({ kind: "success", message }); }}
+              onError={(message) => setToast({ kind: "error", message })} />
+            <DataLifecyclePanel connected={connected}
+              onMessage={(kind, message) => setToast({ kind, message })} />
             <section className="panel automation-proposal"><PanelHeader eyebrow="Suggested operating cadence" title="Daily high-fit opening discovery" />
               <p>Start with a daily 8:00 AM local-time search that writes a reviewed workbook into <code>daily-high-fit-job-roles</code>. Keep collection separate from application or outreach actions.</p>
               <div><a className="secondary-button" href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md" target="_blank" rel="noreferrer">Open Codex workflow guide ↗</a>
@@ -1948,6 +2028,10 @@ export default function Home() {
           setSummaryPreferences(saved); setSummaryConfigurationOpen(false);
           setToast({ kind: "success", message: "Summary priorities, schedule, and recommendations updated." });
         }} />}
+      {liveTransmission && <Modal title="Confirm connected job-page fetch" subtitle="The broker can fetch only these reviewed public HTTPS destinations for this one request." onClose={() => setLiveTransmission(null)} wide>
+        <TransmissionConfirmation preview={liveTransmission.preview} outboundSummary={liveTransmission.outboundSummary}
+          busy={skillAutomationBusy} onCancel={() => setLiveTransmission(null)} onConfirm={(token) => void confirmSkillEvidenceExtraction(token)} />
+      </Modal>}
       {inboxIntakeOpen && <InboxIntakeModal onClose={() => setInboxIntakeOpen(false)}
         onSaved={async (result) => { setInboxIntakeOpen(false); setToast({ kind: "success", message: result.replayed
           ? "That exact source was already captured; the existing review item is shown."
@@ -2022,6 +2106,13 @@ export default function Home() {
         onClose={() => setInterviewApplicationId(null)} onSaved={async () => { await refresh(); }} />}
       {detail && <OpeningDetailModal detail={detail} onClose={() => setDetail(null)} onStart={() => startFromOpening(detail.opening)} />}
       {detailLoading && <div className="detail-loading" role="status">Loading opening evidence…</div>}
+      {!loading && connected && privacyPolicy
+        && (!privacyPolicy.consentAcceptedAt || privacyPolicy.consentTextVersion !== privacyPolicy.currentNoticeVersion)
+        && !privacyOnboardingDismissed
+        && <PrivacyOnboardingModal policy={privacyPolicy} onSaved={(saved) => {
+          setPrivacyPolicy(saved); setPrivacyOnboardingDismissed(true); window.location.hash = "settings";
+          setToast({ kind: "success", message: "Privacy preference saved. Complete your local profile when you are ready." });
+        }} />}
       <Scratchpad connected={connected}
         onSaved={(message) => setToast({ kind: "success", message })}
         onError={(message) => setToast({ kind: "error", message })} />
@@ -2196,6 +2287,189 @@ function ProfileSettingsForm({ profile, connected, onSaved }: {
     <div className="profile-form-actions"><p>Stored locally. Nothing is sent to a hosted profile service.</p>
       <button className="primary-button" disabled={!connected || saving}>{saving ? "Saving…" : "Save local profile"}</button></div>
   </form>;
+}
+
+const privacyModeOptions: { value: AssistanceContextMode; title: string; description: string; note: string }[] = [
+  { value: "STATELESS", title: "Stateless", description: "Do not retain application-owned assistant-derived context between interactions.",
+    note: "Openings, applications, referrals, preparation work, and other records you explicitly save remain separate and are not deleted." },
+  { value: "SESSION_ONLY", title: "Session only", description: "Use temporary context for the active local session, then expire it.",
+    note: "This preference does not change Codex task history or memory. Durable session-store enforcement remains a V1 release gate." },
+  { value: "TIME_BOUND", title: "Time-bound personalization", description: "Retain application-owned derived context for a limited period to improve continuity.",
+    note: "Longer retention can improve personalized suggestions, while keeping more sensitive context for longer." },
+];
+
+async function putPrivacyPolicy(mode: AssistanceContextMode, retentionDays: 7 | 30 | 90,
+  transientRetentionDays: 7 | 30,
+  connectedAssistanceEnabled: boolean, currentNoticeVersion: string) {
+  return normalizePrivacyPolicy(await api<PrivacyPolicy>("/api/v1/privacy-policy", { method: "PUT", body: JSON.stringify({
+    assistanceContextMode: mode,
+    derivedContextRetentionDays: mode === "TIME_BOUND" ? retentionDays : null,
+    transientIngestionRetentionDays: transientRetentionDays,
+    connectedAssistanceEnabled,
+    consentTextVersion: currentNoticeVersion,
+    consentAccepted: true,
+  }) }));
+}
+
+function PrivacyOnboardingModal({ policy, onSaved }: { policy: PrivacyPolicy; onSaved: (saved: PrivacyPolicy) => void }) {
+  const dialogRef = useAccessibleDialog(() => undefined);
+  return <div className="modal-backdrop privacy-onboarding-backdrop"><section ref={dialogRef} tabIndex={-1} className="modal modal-wide privacy-onboarding-modal"
+    role="dialog" aria-modal="true" aria-labelledby="privacy-onboarding-title" aria-describedby="privacy-onboarding-description">
+    <header><div><p className="eyebrow">First-run privacy choice</p><h2 id="privacy-onboarding-title">Privacy &amp; intelligence</h2>
+      <p id="privacy-onboarding-description">Choose how this application should retain assistant-derived context. You can change this later in Profile.</p></div></header>
+    <div className="privacy-onboarding-intro"><strong>Your saved work remains yours</strong><p>Stateless applies only to assistant-derived context. Records you deliberately save in the command center use separate retention controls.</p></div>
+    <PrivacyPolicyEditor policy={policy} submitLabel="Save privacy choice and continue" onSaved={onSaved} />
+  </section></div>;
+}
+
+function PrivacySettingsPanel({ policy, loading, error, connected, onSaved, onError }: {
+  policy: PrivacyPolicy | null; loading: boolean; error: string | null; connected: boolean;
+  onSaved: (saved: PrivacyPolicy, message: string) => void; onError: (message: string) => void;
+}) {
+  const [preview, setPreview] = useState<CleanupPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
+
+  async function loadPreview() {
+    setPreviewing(true); setCleanupResult(null);
+    try { setPreview(await api<CleanupPreview>("/api/v1/privacy-policy/cleanup-preview")); }
+    catch (cause) { onError(cause instanceof Error ? cause.message : "Could not preview cleanup."); }
+    finally { setPreviewing(false); }
+  }
+  async function runCleanup() {
+    setCleaning(true);
+    try {
+      const result = await api<CleanupResult>("/api/v1/privacy-policy/cleanup", {
+        method: "POST", headers: { "X-JSCC-Confirmation": "run-derived-cleanup" },
+      });
+      setCleanupResult(result); setPreview(null);
+      const refreshed = normalizePrivacyPolicy(await api<PrivacyPolicy>("/api/v1/privacy-policy"));
+      const removed = result.assistanceRunCount + result.assistanceDecisionCount
+        + result.transientDatabaseRecordCount + result.auditMetadataRecordCount + result.transientFileCount;
+      onSaved(refreshed, `Cleanup complete: ${removed} expired record${removed === 1 ? "" : "s"} or file${removed === 1 ? "" : "s"} removed.`);
+    } catch (cause) { onError(cause instanceof Error ? cause.message : "Could not run cleanup."); }
+    finally { setCleaning(false); }
+  }
+
+  return <section className="panel privacy-settings-panel" aria-labelledby="privacy-settings-title">
+    <header className="privacy-panel-heading"><div><p className="eyebrow">Data &amp; privacy</p><h2 id="privacy-settings-title">Control assistance context and connected access</h2></div>
+      {policy && <span className={`privacy-runtime-status ${policy.connectedAssistanceEnabled ? "connected" : "local"}`}>
+        <i aria-hidden="true" />{policy.connectedAssistanceEnabled ? "Connected policy opted in" : "Local-only policy"}</span>}</header>
+    {loading ? <p className="privacy-loading" role="status">Loading your local privacy policy…</p>
+      : error || !policy ? <div className="privacy-error" role="alert"><strong>Privacy controls are unavailable.</strong><p>{error ?? "The API did not return a privacy policy."}</p></div>
+        : <><PrivacyPolicyEditor policy={policy} submitLabel="Save privacy settings"
+          onSaved={(saved) => { setPreview(null); setCleanupResult(null); onSaved(saved, "Privacy and intelligence settings saved."); }} />
+          <div className="privacy-boundaries-grid"><article><span>Application boundary</span><h3>Saved records stay separate</h3>
+            <p>Your openings, applications, contacts, outreach, preparation items, and reviews remain until you delete them or configure their retention separately.</p></article>
+            <article><span>Codex boundary</span><h3>Codex has separate controls</h3><p>This setting cannot change Codex task transcripts, memories, or OpenAI account retention. Avoid sharing unnecessary secrets in any assistant conversation.</p>
+              <div><a href="https://learn.chatgpt.com/docs/customization/memories" target="_blank" rel="noreferrer">Review Codex memories ↗</a>
+                <a href="https://learn.chatgpt.com/docs/permissions" target="_blank" rel="noreferrer">Review permissions ↗</a></div></article></div>
+          <section className="privacy-cleanup" aria-labelledby="privacy-cleanup-title"><header><div><span>Retention cleanup</span><h3 id="privacy-cleanup-title">Preview before removing expired context</h3></div>
+            <button type="button" className="secondary-button" disabled={!connected || previewing || cleaning} onClick={() => void loadPreview()}>{previewing ? "Checking…" : "Preview cleanup"}</button></header>
+            <p>{policy.assistanceContextMode === "TIME_BOUND"
+              ? `Accepted application-owned assistant runs and decisions older than ${policy.derivedContextRetentionDays} days are cleaned at startup and on the daily schedule. You can preview and run that cleanup now.`
+              : "Cleanup treats persisted application-owned assistant runs and decisions as immediately expired."} Transient import staging is retained for {policy.transientIngestionRetentionDays} days. Deliberately saved records remain separate.</p>
+            {preview && <div className="cleanup-preview" aria-live="polite"><div><strong>{preview.totalRecords}</strong><span>expired records and files</span></div>
+              <dl><div><dt>Assistant runs</dt><dd>{preview.assistanceRunCount}</dd></div><div><dt>Assistant decisions</dt><dd>{preview.assistanceDecisionCount}</dd></div>
+                <div><dt>Transient records</dt><dd>{preview.transientDatabaseRecordCount}</dd></div><div><dt>Transient files</dt><dd>{preview.transientFileCount}</dd></div>
+                <div><dt>Audit metadata</dt><dd>{preview.auditMetadataRecordCount}</dd></div>
+                <div><dt>Cutoff</dt><dd>{preview.cutoff ? formatDateTime(preview.cutoff) : "All retained context"}</dd></div></dl>
+              <button type="button" className="primary-button" disabled={cleaning || preview.totalRecords === 0} onClick={() => void runCleanup()}>{cleaning ? "Cleaning…" : "Run cleanup now"}</button></div>}
+            {cleanupResult && <p className="cleanup-result" role="status"><strong>Cleanup {cleanupResult.outcome === "PARTIAL" ? "completed with skipped unsafe paths" : "completed"}.</strong> Removed {cleanupResult.assistanceRunCount + cleanupResult.assistanceDecisionCount} assistant record{cleanupResult.assistanceRunCount + cleanupResult.assistanceDecisionCount === 1 ? "" : "s"}, {cleanupResult.transientDatabaseRecordCount} transient database record{cleanupResult.transientDatabaseRecordCount === 1 ? "" : "s"}, {cleanupResult.transientFileCount} transient file{cleanupResult.transientFileCount === 1 ? "" : "s"}, and {cleanupResult.auditMetadataRecordCount} expired audit receipt{cleanupResult.auditMetadataRecordCount === 1 ? "" : "s"}. A payload-free receipt was recorded.</p>}
+            <footer><span>Last cleanup: {policy.lastSuccessfulCleanupAt ? formatDateTime(policy.lastSuccessfulCleanupAt) : "Not run yet"}</span>
+              <span>Next scheduled cleanup: {policy.nextScheduledCleanupAt ? formatDateTime(policy.nextScheduledCleanupAt) : "Not scheduled"}</span></footer>
+          </section></>}
+  </section>;
+}
+
+function PrivacyPolicyEditor({ policy, submitLabel, onSaved }: { policy: PrivacyPolicy; submitLabel: string; onSaved: (saved: PrivacyPolicy) => void }) {
+  const editorId = useId();
+  const [mode, setMode] = useState<AssistanceContextMode>(policy.assistanceContextMode);
+  const [retentionDays, setRetentionDays] = useState<7 | 30 | 90>(policy.derivedContextRetentionDays ?? 30);
+  const [transientRetentionDays, setTransientRetentionDays] = useState<7 | 30>(policy.transientIngestionRetentionDays);
+  const [connectedAssistanceEnabled, setConnectedAssistanceEnabled] = useState(policy.connectedAssistanceEnabled);
+  const [saving, setSaving] = useState(false);
+  const [pendingPreview, setPendingPreview] = useState<CleanupPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function selectMode(nextMode: AssistanceContextMode) {
+    setMode(nextMode);
+  }
+
+  function isStricterPolicy() {
+    if (transientRetentionDays < policy.transientIngestionRetentionDays) return true;
+    if (policy.assistanceContextMode !== "TIME_BOUND") return false;
+    if (mode === "STATELESS" || mode === "SESSION_ONLY") return true;
+    return mode === "TIME_BOUND" && retentionDays < (policy.derivedContextRetentionDays ?? 90);
+  }
+
+  async function persistSelectedPolicy() {
+    try { onSaved(await putPrivacyPolicy(mode, retentionDays, transientRetentionDays,
+      connectedAssistanceEnabled, policy.currentNoticeVersion)); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the privacy policy."); return false; }
+    finally { setSaving(false); }
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError(null);
+    if (!isStricterPolicy()) { await persistSelectedPolicy(); return; }
+    try {
+      const preview = await api<CleanupPreview>("/api/v1/privacy-policy/cleanup-preview", { method: "POST", body: JSON.stringify({
+        assistanceContextMode: mode, derivedContextRetentionDays: mode === "TIME_BOUND" ? retentionDays : null,
+        transientIngestionRetentionDays: transientRetentionDays,
+      }) });
+      if (preview.totalRecords > 0) { setPendingPreview(preview); setSaving(false); return; }
+      await persistSelectedPolicy();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not preview the stricter privacy policy."); setSaving(false);
+    }
+  }
+
+  return <form className="privacy-policy-form" onSubmit={save}>
+    <fieldset className="privacy-mode-fieldset"><legend>Assistant-derived context</legend><p>Choose the balance between continuity and the amount of sensitive context retained by this application.</p>
+      <div className="privacy-mode-options">{privacyModeOptions.map((option) => <label aria-label={option.title} htmlFor={`${editorId}-${option.value}`} className={`privacy-mode-option ${mode === option.value ? "selected" : ""}`} key={option.value}>
+        <input id={`${editorId}-${option.value}`} type="radio" name={`${editorId}-assistanceContextMode`} value={option.value} checked={mode === option.value} onChange={() => selectMode(option.value)} />
+        <span><strong>{option.title}</strong><small>{option.description}</small><em>{option.note}</em></span></label>)}</div></fieldset>
+    {mode === "TIME_BOUND" && <fieldset className="retention-fieldset"><legend>Derived-context retention</legend><div>{([7, 30, 90] as const).map((days) => <label aria-label={`${days} days`} htmlFor={`${editorId}-retention-${days}`} className={retentionDays === days ? "selected" : ""} key={days}>
+      <input id={`${editorId}-retention-${days}`} type="radio" name={`${editorId}-retentionDays`} value={days} checked={retentionDays === days} onChange={() => setRetentionDays(days)} /><span><strong>{days} days</strong><small>{days === 7 ? "More privacy" : days === 30 ? "Balanced" : "More continuity"}</small></span></label>)}</div></fieldset>}
+    <fieldset className="retention-fieldset"><legend>Transient import retention</legend><p>Raw import and review staging data is removed after this period. Openings, actions, contacts, and evidence you deliberately save remain separate.</p><div>{([7, 30] as const).map((days) => <label aria-label={`Retain transient imports for ${days} days`} htmlFor={`${editorId}-transient-${days}`} className={transientRetentionDays === days ? "selected" : ""} key={days}>
+      <input id={`${editorId}-transient-${days}`} type="radio" name={`${editorId}-transientRetentionDays`} value={days} checked={transientRetentionDays === days} onChange={() => setTransientRetentionDays(days)} /><span><strong>{days} days</strong><small>{days === 7 ? "Recommended default" : "Longer import review window"}</small></span></label>)}</div></fieldset>
+    <label aria-label="Allow connected assistance" htmlFor={`${editorId}-connected`} className={`connected-assistance-toggle ${connectedAssistanceEnabled ? "enabled" : ""}`}><input id={`${editorId}-connected`} type="checkbox" checked={connectedAssistanceEnabled}
+      onChange={(event) => setConnectedAssistanceEnabled(event.target.checked)} /><span><strong>Allow connected assistance</strong>
+        <small>{connectedAssistanceEnabled ? "Your policy opt-in is recorded. The supported local-only Docker runtime still blocks outbound access; the reviewed connected runtime and confirmation of every transmission are also required."
+          : "Application policy blocks provider-backed assistance and live page fetching. Local records and non-connected workflows remain available."}</small></span></label>
+    <div className={`privacy-enforcement-note ${mode === "TIME_BOUND" ? "scheduled" : ""}`}><strong>{mode === "TIME_BOUND" ? "Scheduled retention" : "Current V1 enforcement"}</strong>
+      <p>{mode === "TIME_BOUND" ? `Accepted derived context older than ${retentionDays} days is cleaned at startup and on the daily retention schedule.`
+        : mode === "STATELESS" ? "Assistant-derived results remain response-only and are not stored as runs. Deliberately saving reviewed output remains a separate user action."
+          : "Assistant-derived results remain in memory for this backend session and disappear when the backend restarts. Codex remains a separate boundary."}</p></div>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="privacy-form-actions"><p>By saving, you accept <a href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">privacy notice {policy.currentNoticeVersion} ↗</a> for this local installation.</p><button className="primary-button" disabled={saving}>{saving ? "Saving…" : submitLabel}</button></div>
+    {pendingPreview && <PrivacyPolicyTighteningConfirmation preview={pendingPreview} saving={saving} error={error} onCancel={() => setPendingPreview(null)}
+      onConfirm={() => { setSaving(true); setError(null); void persistSelectedPolicy().then((saved) => { if (saved) setPendingPreview(null); }); }} />}
+  </form>;
+}
+
+function PrivacyPolicyTighteningConfirmation({ preview, saving, error, onCancel, onConfirm }: {
+  preview: CleanupPreview; saving: boolean; error: string | null; onCancel: () => void; onConfirm: () => void;
+}) {
+  const dialogRef = useAccessibleDialog(onCancel);
+  return <div className="modal-backdrop privacy-confirmation-backdrop"><section ref={dialogRef} tabIndex={-1} className="modal privacy-confirmation-modal"
+    role="alertdialog" aria-modal="true" aria-labelledby="privacy-confirmation-title" aria-describedby="privacy-confirmation-description">
+    <header><div><p className="eyebrow">Retention change</p><h2 id="privacy-confirmation-title">Confirm the stricter privacy policy</h2>
+      <p id="privacy-confirmation-description">The proposed policy makes the following application-owned derived records immediately eligible for cleanup.</p></div></header>
+    <div className="privacy-confirmation-body"><div className="privacy-confirmation-total"><strong>{preview.totalRecords}</strong><span>expired records and files affected</span></div>
+      <dl><div><dt>Assistant runs</dt><dd>{preview.assistanceRunCount}</dd></div><div><dt>Assistant decisions</dt><dd>{preview.assistanceDecisionCount}</dd></div>
+        <div><dt>Transient records</dt><dd>{preview.transientDatabaseRecordCount}</dd></div><div><dt>Transient files</dt><dd>{preview.transientFileCount}</dd></div>
+        <div><dt>Proposed cutoff</dt><dd>{formatDateTime(preview.cutoff)}</dd></div></dl>
+      <div className="privacy-explicit-record-notice"><strong>Explicitly saved records remain untouched</strong><p>Openings, applications, contacts, outreach, preparation items, reviews, and other records you deliberately saved are not part of this cleanup preview.</p></div>
+      <p>{preview.assistanceContextMode === "TIME_BOUND"
+        ? "Saving applies the stricter policy. The startup and daily retention cleanup will remove the affected derived context; you can also run cleanup immediately from Data & privacy."
+        : "Saving applies the stricter policy and marks this derived context as expired. Run cleanup from Data & privacy to remove it; automatic cleanup scheduling is currently available for accepted Time-bound retention."}</p>
+      {error && <p className="form-error privacy-confirmation-error" role="alert">{error}</p>}
+      <div className="modal-actions"><button type="button" className="text-button" disabled={saving} onClick={onCancel}>Keep current policy</button>
+        <button type="button" className="primary-button" disabled={saving} onClick={onConfirm}>{saving ? "Applying…" : "Apply stricter policy"}</button></div></div>
+  </section></div>;
 }
 
 function MetricCard({ label, value, note, tone }: { label: string; value: number; note: string; tone: string }) {
@@ -2877,7 +3151,8 @@ function InboxAssistanceModal({ candidate, onClose, onSaved, onError }: { candid
   onSaved: (message: string) => Promise<void>; onError: (message: string) => void }) {
   const [overview, setOverview] = useState<InboxAssistanceOverview | null>(null);
   const [selectedFields, setSelectedFields] = useState<string[]>([]);
-  const [confirmed, setConfirmed] = useState(false);
+  const [preview, setPreview] = useState<TransmissionPreview | null>(null);
+  const [transientRun, setTransientRun] = useState<InboxAssistanceRun | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -2891,15 +3166,25 @@ function InboxAssistanceModal({ candidate, onClose, onSaved, onError }: { candid
   }, [candidate.id, onError]);
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
-  const run = overview?.runs.find((item) => item.status === "COMPLETED") ?? overview?.runs[0];
+  const run = transientRun ?? overview?.runs.find((item) => item.status === "COMPLETED") ?? overview?.runs[0];
   const suggestion = run?.suggestion;
 
-  async function generate() {
+  async function requestPreview() {
+    setBusy(true);
+    try { setPreview(await api<TransmissionPreview>(`/api/v1/assistance/inbox/${candidate.id}/transmission-preview`, { method: "POST" })); }
+    catch (error) { onError(error instanceof Error ? error.message : "Could not preview the provider request."); }
+    finally { setBusy(false); }
+  }
+
+  async function generate(confirmationToken: string) {
     setBusy(true);
     try {
       const result = await api<{ replayed: boolean; run: InboxAssistanceRun }>(`/api/v1/assistance/inbox/${candidate.id}`,
-        { method: "POST", body: JSON.stringify({ confirmedTransmission: confirmed }) });
-      await load();
+        { method: "POST", body: JSON.stringify({ confirmationToken }) });
+      setPreview(null); setTransientRun(result.run);
+      if (result.run.suggestion) setSelectedFields(assistedFieldLabels.filter(([field]) => result.run.suggestion?.fields[field] !== null
+        && String(result.run.suggestion?.fields[field] ?? "") !== String(overview?.current[field] ?? "")).map(([field]) => field));
+      if (!result.run.statelessSaveArtifact) await load();
       if (result.run.status === "FAILED") onError(result.run.errorMessage ?? "The provider could not structure this source.");
       else await onSaved(result.replayed ? "The existing schema-constrained result was reused." : "A new reviewable assistance result was generated.");
     } catch (error) { onError(error instanceof Error ? error.message : "Could not request AI assistance."); }
@@ -2910,7 +3195,9 @@ function InboxAssistanceModal({ candidate, onClose, onSaved, onError }: { candid
     if (!run) return;
     setBusy(true);
     try {
-      await api(`/api/v1/assistance/runs/${run.id}/apply`, { method: "POST", body: JSON.stringify({ fields: selectedFields }) });
+      const path = run.statelessSaveArtifact ? `/api/v1/assistance/stateless/inbox/${candidate.id}/apply` : `/api/v1/assistance/runs/${run.id}/apply`;
+      await api(path, { method: "POST", body: JSON.stringify(run.statelessSaveArtifact
+        ? { artifact: run.statelessSaveArtifact, fields: selectedFields } : { fields: selectedFields }) });
       await load(); await onSaved(`${selectedFields.length} selected suggestion${selectedFields.length === 1 ? " was" : "s were"} applied to the review candidate.`);
     } catch (error) { onError(error instanceof Error ? error.message : "Could not apply the selected fields."); }
     finally { setBusy(false); }
@@ -2920,7 +3207,9 @@ function InboxAssistanceModal({ candidate, onClose, onSaved, onError }: { candid
     if (!run) return;
     setBusy(true);
     try {
-      const result = await api<{ publishedCount: number; unmatchedSkills: string[] }>(`/api/v1/assistance/runs/${run.id}/skills`, { method: "POST" });
+      const path = run.statelessSaveArtifact ? `/api/v1/assistance/stateless/inbox/${candidate.id}/skills` : `/api/v1/assistance/runs/${run.id}/skills`;
+      const result = await api<{ publishedCount: number; unmatchedSkills: string[] }>(path, { method: "POST",
+        body: run.statelessSaveArtifact ? JSON.stringify({ artifact: run.statelessSaveArtifact }) : undefined });
       await load(); await onSaved(`${result.publishedCount} skill suggestion${result.publishedCount === 1 ? "" : "s"} entered the existing Proposed evidence queue.${result.unmatchedSkills.length ? ` ${result.unmatchedSkills.length} unmatched term${result.unmatchedSkills.length === 1 ? " remains" : "s remain"} for taxonomy review.` : ""}`);
     } catch (error) { onError(error instanceof Error ? error.message : "Could not publish the proposed skill evidence."); }
     finally { setBusy(false); }
@@ -2932,12 +3221,12 @@ function InboxAssistanceModal({ candidate, onClose, onSaved, onError }: { candid
     {!overview ? <p className="inline-empty">Loading the local assistance boundary…</p> : <div className="assistance-workspace">
       <div className={`assistance-config ${overview.configuration.configured ? "ready" : "off"}`}><div><strong>{overview.configuration.configured ? "Configured" : "AI assistance is off"}</strong>
         <span>{overview.configuration.provider} · {overview.configuration.model}</span></div><p>{overview.configuration.message}</p></div>
-      {!suggestion && <><div className="assistance-transmission"><div><p className="section-label">Outbound preview</p><h3>Content sent only after confirmation</h3></div>
-        <pre>{overview.outboundContent}</pre><label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>I reviewed this content and approve sending it to the configured provider for this structuring request.</span></label></div>
+      {!suggestion && <>{preview ? <TransmissionConfirmation preview={preview} outboundSummary={JSON.stringify(overview.current, null, 2)} busy={busy}
+        onCancel={() => setPreview(null)} onConfirm={(token) => void generate(token)} /> : <div className="assistance-transmission"><div><p className="section-label">Outbound preview</p><h3>Content sent only after confirmation</h3></div>
+        <pre>{overview.outboundContent}</pre><p>Continue to a destination, purpose, minimized-fields, and exact-content review. Nothing leaves this device until you confirm that one request.</p></div>}
         {run?.status === "FAILED" && <p className="inbox-error">{run.errorMessage}</p>}
-        <div className="modal-actions"><button type="button" className="text-button" onClick={onClose}>Close</button>
-          <button type="button" className="assist-button" disabled={busy || !confirmed || !overview.configuration.configured} onClick={() => void generate()}>{busy ? "Structuring…" : "✦ Generate suggestions"}</button></div></>}
+        {!preview && <div className="modal-actions"><button type="button" className="text-button" onClick={onClose}>Close</button>
+          <button type="button" className="assist-button" disabled={busy || !overview.configuration.configured} onClick={() => void requestPreview()}>{busy ? "Preparing preview…" : "✦ Review transmission"}</button></div>}</>}
       {suggestion && <><div className="assistance-provenance"><span>Schema-constrained result</span><strong>{run.provider} · {run.model}</strong><small>{run.promptVersion} · generated {formatDateTime(run.createdAt)}</small></div>
         <div className="assisted-field-list"><div className="assisted-field-head"><span>Use</span><span>Field</span><strong>Current</strong><strong>Suggested</strong></div>
           {assistedFieldLabels.map(([field, label]) => <label className="assisted-field-row" key={field}><input type="checkbox" checked={selectedFields.includes(field)}
@@ -2959,7 +3248,8 @@ function InboxAssistanceModal({ candidate, onClose, onSaved, onError }: { candid
 function WeeklyAssistanceModal({ review, onClose, onSaved, onError }: { review: WeeklyReview; onClose: () => void;
   onSaved: () => Promise<void>; onError: (message: string) => void }) {
   const [overview, setOverview] = useState<WeeklyAssistanceOverview | null>(null);
-  const [confirmed, setConfirmed] = useState(false); const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<TransmissionPreview | null>(null);
+  const [transientRun, setTransientRun] = useState<WeeklyAssistanceRun | null>(null); const [busy, setBusy] = useState(false);
   const [wins, setWins] = useState(""); const [challenges, setChallenges] = useState(""); const [reflection, setReflection] = useState("");
   const [adjustments, setAdjustments] = useState(""); const [focus, setFocus] = useState("");
 
@@ -2971,15 +3261,26 @@ function WeeklyAssistanceModal({ review, onClose, onSaved, onError }: { review: 
     catch (error) { onError(error instanceof Error ? error.message : "Could not load weekly assistance."); }
   }, [review.id, onError]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
-  const run = overview?.runs.find((item) => item.status === "COMPLETED") ?? overview?.runs[0];
+  const run = transientRun ?? overview?.runs.find((item) => item.status === "COMPLETED") ?? overview?.runs[0];
   const draft = run?.draft;
 
-  async function generate() {
+  async function requestPreview() {
+    setBusy(true);
+    try { setPreview(await api<TransmissionPreview>(`/api/v1/assistance/weekly/${review.id}/transmission-preview`, { method: "POST" })); }
+    catch (error) { onError(error instanceof Error ? error.message : "Could not preview the provider request."); }
+    finally { setBusy(false); }
+  }
+
+  async function generate(confirmationToken: string) {
     setBusy(true);
     try {
       const result = await api<{ run: WeeklyAssistanceRun }>(`/api/v1/assistance/weekly/${review.id}`,
-        { method: "POST", body: JSON.stringify({ confirmedTransmission: confirmed }) });
-      await load(); if (result.run.status === "FAILED") onError(result.run.errorMessage ?? "The provider could not draft this reflection.");
+        { method: "POST", body: JSON.stringify({ confirmationToken }) });
+      setPreview(null); setTransientRun(result.run);
+      const generatedDraft = result.run.draft;
+      if (generatedDraft) { setWins(generatedDraft.wins ?? ""); setChallenges(generatedDraft.challenges ?? "");
+        setReflection(generatedDraft.reflection ?? ""); setAdjustments(generatedDraft.nextWeekAdjustments ?? ""); setFocus(generatedDraft.nextWeekFocus ?? ""); }
+      if (result.run.status === "FAILED") onError(result.run.errorMessage ?? "The provider could not draft this reflection.");
     } catch (error) { onError(error instanceof Error ? error.message : "Could not draft the weekly reflection."); }
     finally { setBusy(false); }
   }
@@ -2997,11 +3298,12 @@ function WeeklyAssistanceModal({ review, onClose, onSaved, onError }: { review: 
     {!overview ? <p className="inline-empty">Loading the local assistance boundary…</p> : !draft ? <div className="assistance-workspace">
       <div className={`assistance-config ${overview.configuration.configured ? "ready" : "off"}`}><div><strong>{overview.configuration.configured ? "Configured" : "AI assistance is off"}</strong>
         <span>{overview.configuration.provider} · {overview.configuration.model}</span></div><p>{overview.configuration.message}</p></div>
-      <div className="assistance-transmission"><p>The immutable metric snapshot, week-over-week deltas, and existing reflection revisions will be transmitted. No contacts, resumes, or raw inbox content are included.</p>
-        <label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>I approve this one drafting request.</span></label></div>
+      {preview ? <TransmissionConfirmation preview={preview} outboundSummary={JSON.stringify(review, null, 2)} busy={busy}
+        onCancel={() => setPreview(null)} onConfirm={(token) => void generate(token)} /> : <div className="assistance-transmission"><p>The immutable metric snapshot, week-over-week deltas, and existing reflection revisions will be transmitted. No contacts, resumes, or raw inbox content are included.</p>
+        <p>Continue to review the destination, purpose, minimized fields, and exact outbound content before anything leaves this device.</p></div>}
       {run?.status === "FAILED" && <p className="inbox-error">{run.errorMessage}</p>}
-      <div className="modal-actions"><button type="button" className="text-button" onClick={onClose}>Close</button>
-        <button type="button" className="assist-button" disabled={busy || !confirmed || !overview.configuration.configured} onClick={() => void generate()}>{busy ? "Drafting…" : "✦ Generate review draft"}</button></div>
+      {!preview && <div className="modal-actions"><button type="button" className="text-button" onClick={onClose}>Close</button>
+        <button type="button" className="assist-button" disabled={busy || !overview.configuration.configured} onClick={() => void requestPreview()}>{busy ? "Preparing preview…" : "✦ Review transmission"}</button></div>}
     </div> : <form className="modal-form assistance-draft-form" onSubmit={save}><div className="assistance-provenance"><span>Editable draft</span><strong>{run.provider} · {run.model}</strong><small>Nothing is saved until you preserve this revision.</small></div>
       {draft.evidence.length > 0 && <div className="draft-evidence"><strong>Evidence used</strong>{draft.evidence.map((item) => <span key={item}>{item}</span>)}</div>}
       <div className="form-grid"><Field label="Wins"><textarea rows={4} value={wins} onChange={(event) => setWins(event.target.value)} /></Field>

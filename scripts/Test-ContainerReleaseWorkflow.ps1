@@ -1,0 +1,102 @@
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$workspace = Split-Path $PSScriptRoot -Parent
+$workflowPath = Join-Path $workspace '.github/workflows/container-release.yml'
+$releaseTemplatePath = Join-Path $workspace '.github/release/compose.release.yaml.tmpl'
+$connectedReleaseTemplatePath = Join-Path $workspace '.github/release/compose.connected.release.yaml.tmpl'
+$documentationPath = Join-Path $workspace 'docs/CONTAINER_RELEASE.md'
+
+function Assert-Match([string]$Content, [string]$Pattern, [string]$Description) {
+    if ($Content -notmatch $Pattern) {
+        throw "Container release workflow check failed: $Description"
+    }
+}
+
+function Assert-NotMatch([string]$Content, [string]$Pattern, [string]$Description) {
+    if ($Content -match $Pattern) {
+        throw "Container release workflow check failed: $Description"
+    }
+}
+
+if (!(Test-Path -LiteralPath $workflowPath -PathType Leaf)) {
+    throw "Missing workflow: $workflowPath"
+}
+if (!(Test-Path -LiteralPath $documentationPath -PathType Leaf)) {
+    throw "Missing release guidance: $documentationPath"
+}
+if (!(Test-Path -LiteralPath $releaseTemplatePath -PathType Leaf)) {
+    throw "Missing digest-pinned Compose release template: $releaseTemplatePath"
+}
+if (!(Test-Path -LiteralPath $connectedReleaseTemplatePath -PathType Leaf)) {
+    throw "Missing digest-pinned connected Compose release template: $connectedReleaseTemplatePath"
+}
+
+$workflow = Get-Content -LiteralPath $workflowPath -Raw
+$releaseTemplate = Get-Content -LiteralPath $releaseTemplatePath -Raw
+$connectedReleaseTemplate = Get-Content -LiteralPath $connectedReleaseTemplatePath -Raw
+$documentation = Get-Content -LiteralPath $documentationPath -Raw
+
+Assert-Match $workflow '(?ms)^on:\s*.*?push:\s*.*?tags:\s*.*?"v\*\.\*\.\*"' 'version-tag trigger is absent'
+Assert-Match $workflow '(?ms)workflow_dispatch:\s*.*?publish:\s*.*?default:\s*false' 'manual validation must default to no publication'
+Assert-Match $workflow '(?m)^\s+environment:\s+container-release\s*$' 'publish job is not protected by the release environment'
+Assert-Match $workflow 'needs\.preflight\.outputs\.publish_requested\s*==\s*''true''' 'publish job lacks an explicit publication request condition'
+Assert-Match $workflow 'GITHUB_REF"\s*!=\s*"refs/tags/\$release_tag' 'manual publication is not restricted to a tag ref'
+Assert-Match $workflow 'vars\.DOCKERHUB_NAMESPACE' 'configurable Docker Hub namespace is absent'
+Assert-Match $workflow 'IMAGE_REPOSITORY_NAME:\s*job-search-command-center' 'the confirmed single Docker Hub repository is absent'
+Assert-Match $workflow 'component_tag="\$COMPONENT-\$RELEASE_TAG"' 'component-prefixed tags are absent'
+Assert-NotMatch $workflow 'job-search-command-center-(api|portal)' 'obsolete component repository names remain in the workflow'
+Assert-Match $workflow "tr '':upper:'' '':lower:''|tr '\[:upper:\]' '\[:lower:\]'" 'namespace is not normalized to lowercase'
+Assert-Match $workflow 'secrets\.DOCKERHUB_USERNAME' 'Docker Hub username environment secret is absent'
+Assert-Match $workflow 'secrets\.DOCKERHUB_TOKEN' 'Docker Hub token environment secret is absent'
+Assert-Match $workflow 'linux/amd64,linux/arm64' 'multi-architecture publication is absent'
+Assert-Match $workflow 'component:\s*\[api, portal, broker\]' 'API, portal, and egress broker are not independently handled'
+Assert-Match $workflow 'node --test --test-isolation=none test/\*\.test\.mjs' 'egress-broker tests are absent'
+Assert-Match $workflow 'provenance:\s*mode=max' 'maximum BuildKit provenance is absent'
+Assert-Match $workflow 'sbom:\s*true' 'BuildKit SBOM attestation is absent'
+Assert-Match $workflow 'actions/attest@[0-9a-f]{40}' 'signed GitHub attestations are absent or unpinned'
+Assert-Match $workflow 'cosign sign --yes' 'keyless signing is absent'
+Assert-Match $workflow 'cosign verify' 'signature verification is absent'
+Assert-Match $workflow '--certificate-identity\s+"https://github\.com/\$\{GITHUB_REPOSITORY\}/\.github/workflows/container-release\.yml@refs/tags/\$RELEASE_TAG"' 'signature verification is not bound to the exact tag identity'
+Assert-Match $workflow 'pnpm audit --prod --audit-level high' 'pnpm dependency gate is absent'
+Assert-Match $workflow 'github/codeql-action/init@[0-9a-f]{40}' 'CodeQL is absent or unpinned'
+Assert-Match $workflow 'scanners:\s*secret' 'secret scan is absent'
+Assert-Match $workflow 'docker/scout-action@[0-9a-f]{40}' 'Docker Scout gate is absent or unpinned'
+Assert-Match $workflow 'ignore-unfixed:\s*true' 'fixable vulnerability gate is absent'
+Assert-Match $workflow 'NGINX_UPSTREAM:\s*docker\.io/library/nginx:1\.29-alpine' 'official Nginx dependency is not declared'
+Assert-Match $workflow 'dependency:\s*\[nginx, postgres\]' 'official Nginx and PostgreSQL dependencies are not both scanned'
+Assert-Match $workflow 'Gate fixable high and critical runtime dependency vulnerabilities' 'runtime dependency severity gate is absent'
+Assert-Match $workflow 'LicenseRef-PolyForm-Noncommercial-1\.0\.0' 'source-available license label is absent'
+Assert-Match $workflow 'required-notice=Required Notice: Copyright © 2026 Dhruv Jawalkar' 'required creator notice is absent from image labels'
+Assert-Match $workflow 'Assemble digest-pinned Compose release bundle' 'release bundle finalization is absent'
+Assert-Match $workflow 'sha256sum compose\.yaml compose\.connected\.yaml gateway/nginx\.conf CONNECTED_RUNTIME\.md release-manifest\.json' 'connected override or connected-runtime guidance is missing from release checksums'
+Assert-Match $workflow 'actions/download-artifact@[0-9a-f]{40}' 'release evidence download is absent or unpinned'
+
+$uses = [regex]::Matches($workflow, '(?m)^\s*-?\s*uses:\s*([^\s#]+)')
+if ($uses.Count -eq 0) { throw 'Container release workflow check failed: no actions found' }
+foreach ($use in $uses) {
+    $reference = $use.Groups[1].Value
+    if ($reference -notmatch '@[0-9a-f]{40}$') {
+        throw "Container release workflow check failed: action is not pinned to a full commit SHA: $reference"
+    }
+}
+
+Assert-NotMatch $workflow '(?m)^\s*build-args:\s*\$\{\{\s*secrets\.' 'a secret is passed directly as Docker build arguments'
+foreach ($placeholder in @('__API_IMAGE__', '__PORTAL_IMAGE__', '__NGINX_IMAGE__', '__POSTGRES_IMAGE__')) {
+    Assert-Match $releaseTemplate ([regex]::Escape($placeholder)) "release Compose template is missing $placeholder"
+}
+Assert-Match $connectedReleaseTemplate '__BROKER_IMAGE__' 'connected release Compose template is missing __BROKER_IMAGE__'
+Assert-Match $workflow '"\$api_image" "\$portal_image" "\$broker_image" "\$NGINX_IMAGE" "\$POSTGRES_IMAGE"' 'release bundle does not reject non-digest broker references alongside the base images'
+Assert-NotMatch $releaseTemplate '(?m)^\s+build:' 'release Compose template contains a source build context'
+Assert-NotMatch $connectedReleaseTemplate '(?m)^\s+build:' 'connected release Compose template contains a source build context'
+Assert-Match $connectedReleaseTemplate 'APP_CONNECTED_ENABLED:\s*"true"' 'connected release override does not explicitly enable connected mode'
+Assert-Match $connectedReleaseTemplate 'OPENAI_API_KEY' 'connected release override does not isolate the provider credential in the broker'
+Assert-Match $releaseTemplate 'APP_WORKSPACE_ROOT:\s*/workspace' 'release API workspace root is not fixed to the mounted workspace'
+Assert-Match $releaseTemplate 'APP_PREPARATION_WORKSPACE_FOLDER:\s*/workspace/preparation-workspace' 'release preparation inventory path is not fixed to its mounted folder'
+Assert-Match $releaseTemplate '/tmp:size=32m,mode=1777' 'release gateway tmpfs is too small for the supported request limit'
+Assert-Match (Get-Content -LiteralPath (Join-Path $workspace 'gateway/nginx.conf') -Raw) 'client_max_body_size\s+16m;' 'gateway upload request limit is not preserved'
+Assert-Match $documentation 'have not.*built, scanned, signed, or published' 'guidance overclaims current release evidence'
+Assert-Match $documentation 'PolyForm Noncommercial License 1\.0\.0' 'license limitations are not explained'
+Assert-Match $documentation 'required reviewers' 'manual environment approval is not documented'
+
+Write-Output 'Container release workflow structural checks passed. No remote workflow or publication was performed.'

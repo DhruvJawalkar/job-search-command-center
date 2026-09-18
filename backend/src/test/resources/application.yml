@@ -12,12 +12,24 @@ spring:
     enabled: false
 
 app:
+  privacy:
+    workspace-root: target/test-workspace
+    preparation-workspace-folder: target/test-workspace/preparation-workspace
+    cleanup:
+      poll-delay: PT1H
   seed-demo: false
   application-artifacts:
     folder: target/test-application-resumes
+  notes:
+    folder: target/test-notes
   imports:
     daily-high-fit:
       enabled: false
       folder: target/test-daily-high-fit
+    linkedin-connections:
+      file: target/test-linkedin/Connections.csv
+  cohorts:
+    company-targets:
+      folder: target/test-company-targets
   cors:
     allowed-origins: http://localhost:3000,http://127.0.0.1:3000

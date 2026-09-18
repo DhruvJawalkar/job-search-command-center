@@ -67,19 +67,22 @@ The proposed daily discovery task and the under-one-minute example workflow are 
 
 ## Local trust boundary
 
-V1 has no application authentication or authorization. The portal, API, and PostgreSQL port bind to `127.0.0.1` and are intended for one trusted user on one local machine. Do not expose them through a LAN bind, tunnel, reverse proxy, port-forward, or public host.
+V1 has no application authentication or authorization. A hardened fixed-route gateway publishes the portal and API endpoints only on `127.0.0.1`; the portal, API, and PostgreSQL have no direct host ports and use an internal network with no ordinary outbound route. The gateway is a separately disclosed ingress boundary, not proof of universal non-exfiltration. The stack is intended for one trusted user on one local machine. Do not expose it through a LAN bind, tunnel, reverse proxy, port-forward, or public host.
 
-The selected local workspace contains the generated `.env`, PostgreSQL data, resumes, job descriptions, LinkedIn exports, notes, workbooks, and backups. Keep it out of source control and cloud sharing unless you deliberately use an encrypted private backup. See [Security](SECURITY.md).
+The selected local workspace contains the generated `.env`, PostgreSQL data, resumes, job descriptions, LinkedIn exports, notes, workbooks, and backups. Keep it out of source control and cloud sharing unless you deliberately use an encrypted private backup. Optional provider assistance and live public job-page retrieval require the separate [reviewed connected runtime](docs/CONNECTED_RUNTIME.md), policy opt-in, and confirmation of a destination/purpose/data preview for each request. Application privacy settings do not control Codex task history, the host browser, or external services. Read [Privacy](PRIVACY.md), [Security](SECURITY.md), and the [Threat model](docs/THREAT_MODEL.md) before adding real personal or third-party data.
 
 ## Repository map
 
 ```text
 backend/       Spring Boot API, Flyway migrations, and tests
 frontend/      React/TypeScript local portal
+gateway/       fixed-route loopback ingress proxy
+egress-broker/ authenticated, narrow broker used only by the connected override
 docs/          installation, onboarding, data, demo, and development guides
 guided-workflows/ page indexes and step-by-step Codex-assisted playbooks
 scripts/       validation and recovery helpers
-compose.yaml   loopback-only PostgreSQL, API, and portal stack
+compose.yaml   local-only stack: loopback gateway, isolated data-processing services
+compose.connected.yaml explicit opt-in overlay for reviewed connected operations
 setup.ps1      guided Windows setup
 setup.sh       guided macOS/Linux setup
 ```
@@ -88,7 +91,7 @@ setup.sh       guided macOS/Linux setup
 
 The accepted private V1 was reconstructed as the first auditable commit in this public history. [V1 reconstruction](docs/V1_RECONSTRUCTION.md) records its scope. The complete Docker-packaged release follows in later commits. The final manually accepted release commit will be tagged `v1.0.0`.
 
-Build and validation commands are in [Development](docs/DEVELOPMENT.md). The completed V1 gates are recorded in [Release evidence](docs/V1_RELEASE_EVIDENCE.md). The daily workbook contract is in [Daily high-fit ETL](docs/DAILY_HIGH_FIT_ETL.md).
+Build and validation commands are in [Development](docs/DEVELOPMENT.md). The completed V1 gates are recorded in [Release evidence](docs/V1_RELEASE_EVIDENCE.md). The prepared, protected container workflow and post-release verification steps are described in [Container release and verification](docs/CONTAINER_RELEASE.md); that source file is not evidence that a release workflow has run. The daily workbook contract is in [Daily high-fit ETL](docs/DAILY_HIGH_FIT_ETL.md).
 
 ## License and project identity
 

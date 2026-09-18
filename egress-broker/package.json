@@ -1,0 +1,13 @@
+{
+  "name": "job-search-command-center-egress-broker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  }
+}

@@ -1,11 +1,13 @@
 package dev.dhruv.jobsearch.skill;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
 
 import tools.jackson.databind.ObjectMapper;
+import dev.dhruv.jobsearch.connected.ConnectedBrokerClient;
 
 class LiveJobPageFetcherTest {
 
@@ -42,9 +44,17 @@ class LiveJobPageFetcherTest {
     }
 
     @Test
-    void refusesLocalNetworkTargets() {
-        assertThatThrownBy(() -> fetcher.fetch("http://localhost/internal"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Local network");
+    void delegatesNetworkAccessToTheReviewedBroker() {
+        ConnectedBrokerClient broker = mock(ConnectedBrokerClient.class);
+        String html = "<main><h2>Responsibilities</h2><p>" + "Build secure distributed systems. ".repeat(20)
+                + "</p><h2>Qualifications</h2><p>Production Java and cloud experience.</p></main>";
+        when(broker.fetchJobPage("https://jobs.example.com/42"))
+                .thenReturn(new ConnectedBrokerClient.JobPageResponse("https://jobs.example.com/42",
+                        html.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        var result = new LiveJobPageFetcher(new ObjectMapper(), broker).fetch("https://jobs.example.com/42");
+
+        assertThat(result.finalUrl()).isEqualTo("https://jobs.example.com/42");
+        assertThat(result.description()).contains("Build secure distributed systems", "Qualifications");
     }
 }

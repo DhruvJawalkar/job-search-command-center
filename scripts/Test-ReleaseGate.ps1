@@ -20,7 +20,9 @@ function Assert-Contains([string]$Path, [string]$Pattern, [string]$Name) {
 Push-Location $workspace
 try {
     Assert-Contains 'backend/src/main/resources/application.yml' 'address:\s*\$\{SERVER_ADDRESS:127\.0\.0\.1\}' 'API defaults to loopback'
-    Assert-Contains 'compose.yaml' '127\.0\.0\.1:5432:5432' 'PostgreSQL publishes on loopback'
+    Assert-Contains 'compose.yaml' 'local_only:\s*\r?\n\s+internal:\s*true' 'Compose default network is externally isolated'
+    Assert-Contains 'compose.yaml' '127\.0\.0\.1:\$\{APP_API_HOST_PORT:-8080\}:8080' 'Gateway publishes API route on loopback'
+    Assert-Contains 'compose.yaml' '127\.0\.0\.1:\$\{APP_PORTAL_HOST_PORT:-3000\}:3000' 'Gateway publishes portal route on loopback'
     Assert-Contains 'frontend/package.json' 'vinext start --hostname 127\.0\.0\.1' 'Production portal defaults to loopback'
     Assert-Contains 'frontend/package.json' 'vinext dev --hostname 127\.0\.0\.1' 'Development portal defaults to loopback'
     Assert-Contains 'AGENTS.md' 'guided-workflows/README\.md' 'Codex repository router is present'
@@ -74,9 +76,16 @@ try {
     & git diff --check | Out-Null
     Add-Check 'Git whitespace check' ($LASTEXITCODE -eq 0) 'git diff --check'
 
+    & (Join-Path $workspace 'scripts/Test-ContainerReleaseWorkflow.ps1')
+    Add-Check 'Container release workflow structure' $true 'scripts/Test-ContainerReleaseWorkflow.ps1'
+
+    $localOnlyArguments = if ($SkipRuntime) { @() } else { @('-Runtime') }
+    & (Join-Path $workspace 'scripts/Test-LocalOnlyRuntime.ps1') @localOnlyArguments
+    Add-Check 'Local-only Compose acceptance' $true $(if ($SkipRuntime) { 'compose configuration' } else { 'compose configuration and live runtime' })
+
     if (!$SkipRuntime) {
         $listeners = @(netstat -ano)
-        foreach ($port in @(3000, 8080, 5432)) {
+        foreach ($port in @(3000, 8080)) {
             $loopback = @($listeners | Where-Object { $_ -match "^\s*TCP\s+127\.0\.0\.1:$port\s+.*LISTENING" })
             $broad = @($listeners | Where-Object { $_ -match "^\s*TCP\s+(0\.0\.0\.0|\[::\]):$port\s+.*LISTENING" })
             Add-Check "Runtime port $port is loopback-only" ($loopback.Count -gt 0 -and $broad.Count -eq 0) "loopback=$($loopback.Count); broad=$($broad.Count)"

@@ -1,16 +1,6 @@
 package dev.dhruv.jobsearch.skill;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.Inet6Address;
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.Deque;
@@ -20,6 +10,9 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import dev.dhruv.jobsearch.connected.ConnectedBrokerClient;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -27,8 +20,6 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class LiveJobPageFetcher {
 
-    private static final int MAX_REDIRECTS = 5;
-    private static final int MAX_PAGE_BYTES = 4 * 1024 * 1024;
     private static final int MIN_DESCRIPTION_CHARACTERS = 300;
     private static final String DESCRIPTION_SELECTORS = String.join(", ",
             "[data-automation-id=jobPostingDescription]", "[data-testid=job-description]",
@@ -38,57 +29,24 @@ public class LiveJobPageFetcher {
             "[class*=jobDescription]");
 
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private final ConnectedBrokerClient broker;
 
-    public LiveJobPageFetcher(ObjectMapper objectMapper) {
+    @Autowired
+    public LiveJobPageFetcher(ObjectMapper objectMapper, ConnectedBrokerClient broker) {
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(8))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
+        this.broker = broker;
+    }
+
+    LiveJobPageFetcher(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+        this.broker = null;
     }
 
     public FetchedDescription fetch(String sourceUrl) {
-        URI current = validatedUri(sourceUrl);
-        for (int redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
-            HttpRequest request = HttpRequest.newBuilder(current)
-                    .timeout(Duration.ofSeconds(18))
-                    .header("Accept", "text/html,application/xhtml+xml")
-                    .header("User-Agent", "JobSearchCommandCenter/1.0 (+local evidence capture)")
-                    .GET().build();
-            HttpResponse<InputStream> response;
-            try {
-                response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            } catch (IOException exception) {
-                throw new IllegalStateException("The live job page could not be reached.", exception);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("The live job-page request was interrupted.", exception);
-            }
-            int status = response.statusCode();
-            if (status >= 300 && status < 400) {
-                close(response.body());
-                String location = response.headers().firstValue("location")
-                        .orElseThrow(() -> new IllegalStateException("The live job page returned an invalid redirect."));
-                current = validatedUri(current.resolve(location).toString());
-                continue;
-            }
-            if (status < 200 || status >= 300) {
-                close(response.body());
-                throw new IllegalStateException("The live job page returned HTTP " + status + ".");
-            }
-            String contentType = response.headers().firstValue("content-type").orElse("text/html")
-                    .toLowerCase(Locale.ROOT);
-            if (!contentType.contains("text/html") && !contentType.contains("application/xhtml+xml")) {
-                close(response.body());
-                throw new IllegalStateException("The direct job link did not return an HTML page.");
-            }
-            byte[] bytes = readLimited(response.body());
-            String html = new String(bytes, StandardCharsets.UTF_8);
-            ExtractedContent extracted = extractDescription(html, current.toString());
-            return new FetchedDescription(current.toString(), extracted.description(), extracted.method());
-        }
-        throw new IllegalStateException("The live job page redirected too many times.");
+        ConnectedBrokerClient.JobPageResponse response = broker.fetchJobPage(sourceUrl);
+        String html = new String(response.body(), StandardCharsets.UTF_8);
+        ExtractedContent extracted = extractDescription(html, response.finalUrl());
+        return new FetchedDescription(response.finalUrl(), extracted.description(), extracted.method());
     }
 
     ExtractedContent extractDescription(String html, String baseUri) {
@@ -164,65 +122,6 @@ public class LiveJobPageFetcher {
 
     private String normalize(String value) {
         return value == null ? "" : value.replace('\u00a0', ' ').replaceAll("\\s+", " ").trim();
-    }
-
-    private URI validatedUri(String value) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException("A direct job link is required.");
-        URI uri;
-        try {
-            uri = new URI(value.trim());
-        } catch (URISyntaxException exception) {
-            throw new IllegalArgumentException("The direct job link is not a valid URL.", exception);
-        }
-        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-        if ((!scheme.equals("https") && !scheme.equals("http")) || uri.getHost() == null || uri.getUserInfo() != null) {
-            throw new IllegalArgumentException("Only public HTTP or HTTPS job links can be fetched.");
-        }
-        if (uri.getPort() != -1 && uri.getPort() != 80 && uri.getPort() != 443) {
-            throw new IllegalArgumentException("Only standard HTTP or HTTPS ports can be fetched.");
-        }
-        String host = uri.getHost();
-        if (host.equalsIgnoreCase("localhost") || host.toLowerCase(Locale.ROOT).endsWith(".localhost")) {
-            throw new IllegalArgumentException("Local network addresses cannot be fetched.");
-        }
-        try {
-            for (InetAddress address : InetAddress.getAllByName(host)) {
-                if (isPrivate(address)) throw new IllegalArgumentException("Private network addresses cannot be fetched.");
-            }
-        } catch (IOException exception) {
-            throw new IllegalStateException("The direct job-link host could not be resolved.", exception);
-        }
-        return uri;
-    }
-
-    private boolean isPrivate(InetAddress address) {
-        if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
-                || address.isSiteLocalAddress() || address.isMulticastAddress()) return true;
-        if (address instanceof Inet6Address) {
-            byte[] raw = address.getAddress();
-            return (raw[0] & 0xfe) == 0xfc;
-        }
-        return false;
-    }
-
-    private byte[] readLimited(InputStream body) {
-        try (body) {
-            byte[] bytes = body.readNBytes(MAX_PAGE_BYTES + 1);
-            if (bytes.length > MAX_PAGE_BYTES) {
-                throw new IllegalStateException("The live job page is too large to store safely.");
-            }
-            return bytes;
-        } catch (IOException exception) {
-            throw new IllegalStateException("The live job page could not be read.", exception);
-        }
-    }
-
-    private void close(InputStream body) {
-        try {
-            body.close();
-        } catch (IOException ignored) {
-            // The response is already being discarded.
-        }
     }
 
     public record FetchedDescription(String finalUrl, String description, String extractionMethod) {}

@@ -6,15 +6,20 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import dev.dhruv.jobsearch.connected.TransmissionOperation;
+import dev.dhruv.jobsearch.connected.TransmissionOutcome;
+import dev.dhruv.jobsearch.connected.TransmissionService;
 import dev.dhruv.jobsearch.ingestion.DuplicateReviewService;
 import dev.dhruv.jobsearch.ingestion.GenericInboxService;
 import dev.dhruv.jobsearch.opportunity.WorkMode;
+import dev.dhruv.jobsearch.privacy.PrivacyPolicyService;
 import dev.dhruv.jobsearch.review.WeeklyReviewService;
 import dev.dhruv.jobsearch.shared.NotFoundException;
 import dev.dhruv.jobsearch.skill.SkillEvidenceService;
@@ -32,6 +37,7 @@ public class AssistanceService {
 
     private static final Set<String> ALLOWED_FIELDS = Set.of("companyName", "roleTitle", "location", "workMode",
             "sourceName", "sourceExternalId", "sourceUrl", "description");
+    private static final String OPENAI_DESTINATION = "https://api.openai.com/v1/responses";
 
     private final AssistanceRunRepository runs;
     private final AssistanceDecisionRepository decisions;
@@ -41,10 +47,16 @@ public class AssistanceService {
     private final WeeklyReviewService weeklyReviews;
     private final SkillEvidenceService skillEvidence;
     private final ObjectMapper objectMapper;
+    private final PrivacyPolicyService privacyPolicy;
+    private final SessionAssistanceStore sessionStore;
+    private final StatelessAssistanceArtifactService statelessArtifacts;
+    private final TransmissionService transmissions;
 
     public AssistanceService(AssistanceRunRepository runs, AssistanceDecisionRepository decisions,
             AssistanceProvider provider, GenericInboxService inbox, DuplicateReviewService duplicateReview,
-            WeeklyReviewService weeklyReviews, SkillEvidenceService skillEvidence, ObjectMapper objectMapper) {
+            WeeklyReviewService weeklyReviews, SkillEvidenceService skillEvidence, ObjectMapper objectMapper,
+            PrivacyPolicyService privacyPolicy, SessionAssistanceStore sessionStore,
+            StatelessAssistanceArtifactService statelessArtifacts, TransmissionService transmissions) {
         this.runs = runs;
         this.decisions = decisions;
         this.provider = provider;
@@ -53,44 +65,71 @@ public class AssistanceService {
         this.weeklyReviews = weeklyReviews;
         this.skillEvidence = skillEvidence;
         this.objectMapper = objectMapper;
+        this.privacyPolicy = privacyPolicy;
+        this.sessionStore = sessionStore;
+        this.statelessArtifacts = statelessArtifacts;
+        this.transmissions = transmissions;
     }
 
     public ConfigurationView configuration() {
         return new ConfigurationView(provider.configured(), provider.providerName(), provider.model(),
                 provider.configured() ? "Ready for explicit, review-controlled requests."
-                        : "Set OPENAI_API_KEY and APP_OPENAI_MODEL, then restart the backend.");
+                        : "Start the reviewed connected profile with its broker token, provider key, and model.");
     }
 
     @Transactional(readOnly = true)
     public InboxAssistanceOverview inboxOverview(UUID candidateId) {
         var context = inbox.assistanceContext(candidateId);
+        var mode = privacyPolicy.assistanceContextMode();
         return new InboxAssistanceOverview(configuration(), context.rawPayload(), context,
-                runs.findByUseCaseAndTargetIdOrderByCreatedAtDesc(AssistanceUseCase.INBOX_STRUCTURING, candidateId)
+                visibleRuns(mode, AssistanceUseCase.INBOX_STRUCTURING, candidateId)
                         .stream().map(this::inboxView).toList());
     }
 
     @Transactional
-    public GenerateInboxResult generateInbox(UUID candidateId, boolean confirmedTransmission) {
-        requireConfiguredAndConfirmed(confirmedTransmission);
+    public TransmissionService.PreviewView previewInboxTransmission(UUID candidateId) {
+        String input = json(inbox.assistanceContext(candidateId));
+        return transmissions.issue(TransmissionOperation.OPENAI_INBOX_STRUCTURING, OPENAI_DESTINATION,
+                "Structure one reviewed job-opening candidate for local review",
+                List.of("companyName", "roleTitle", "location", "workMode", "sourceName", "sourceExternalId",
+                        "sourceUrl", "description"), input);
+    }
+
+    @Transactional
+    public GenerateInboxResult generateInbox(UUID candidateId, String confirmationToken) {
+        requireConfigured();
         var context = inbox.assistanceContext(candidateId);
         String input = json(context);
         String inputHash = sha256(input);
-        var existing = runs.findByUseCaseAndTargetIdAndInputHashAndProviderAndModelAndPromptVersionAndSchemaVersion(
-                AssistanceUseCase.INBOX_STRUCTURING, candidateId, inputHash, provider.providerName(), provider.model(),
+        var mode = privacyPolicy.assistanceContextMode();
+        var existing = findReplay(mode, AssistanceUseCase.INBOX_STRUCTURING, candidateId, inputHash,
                 INBOX_PROMPT, INBOX_SCHEMA);
         if (existing.isPresent()) return new GenerateInboxResult(true, inboxView(existing.get()));
+        var transmission = transmissions.consume(confirmationToken, TransmissionOperation.OPENAI_INBOX_STRUCTURING,
+                OPENAI_DESTINATION, input);
 
-        AssistanceRun run = runs.save(new AssistanceRun(AssistanceUseCase.INBOX_STRUCTURING, candidateId, inputHash,
-                provider.providerName(), provider.model(), INBOX_PROMPT, INBOX_SCHEMA));
+        AssistanceRun run = new AssistanceRun(AssistanceUseCase.INBOX_STRUCTURING, candidateId, inputHash,
+                provider.providerName(), provider.model(), INBOX_PROMPT, INBOX_SCHEMA);
+        run = retain(mode, run);
+        TransmissionOutcome outcome;
         try {
             var result = provider.generate(inboxInstructions(), input, "job_inbox_suggestion", schema(INBOX_JSON_SCHEMA));
             InboxSuggestion suggestion = objectMapper.readValue(result.outputJson(), InboxSuggestion.class);
             validate(suggestion);
             run.complete(json(suggestion), result.responseId(), result.inputTokens(), result.outputTokens());
+            outcome = TransmissionOutcome.SUCCESS;
         } catch (Exception exception) {
             run.fail(rootMessage(exception));
+            outcome = TransmissionOutcome.FAILED;
         }
-        return new GenerateInboxResult(false, inboxView(run));
+        transmissions.record(transmission, outcome);
+        String statelessSaveArtifact = mode == dev.dhruv.jobsearch.privacy.AssistanceContextMode.STATELESS
+                && run.getStatus() == AssistanceRunStatus.COMPLETED
+                ? statelessArtifacts.issue(AssistanceUseCase.INBOX_STRUCTURING, candidateId,
+                        inputHash,
+                        run.getResultPayload())
+                : null;
+        return new GenerateInboxResult(false, inboxView(run, statelessSaveArtifact));
     }
 
     @Transactional
@@ -101,8 +140,8 @@ public class AssistanceService {
         }
         InboxSuggestion suggestion = inboxSuggestion(run);
         inbox.applyAssistedFields(run.getTargetId(), suggestion.fields(), selectedFields);
-        decisions.save(new AssistanceDecision(run, AssistanceDecisionType.FIELDS_APPLIED,
-                json(selectedFields.stream().sorted().toList()), "Selected AI suggestions applied to the review candidate."));
+        recordDecision(run, AssistanceDecisionType.FIELDS_APPLIED,
+                json(selectedFields.stream().sorted().toList()), "Selected AI suggestions applied to the review candidate.");
         duplicateReview.scanItem(inbox.assistanceContext(run.getTargetId()).inboxItemId());
         return inboxView(run);
     }
@@ -119,40 +158,85 @@ public class AssistanceService {
                 suggestion.fields().description() == null ? context.rawPayload() : suggestion.fields().description(),
                 suggestion.skills().stream().map(skill -> new SkillEvidenceService.AssistedSkill(
                         skill.name(), skill.strength(), skill.evidenceSnippet())).toList());
-        decisions.save(new AssistanceDecision(run, AssistanceDecisionType.SKILLS_PUBLISHED, null,
-                result.published().size() + " proposed observations published; " + result.unmatched().size() + " unmatched."));
+        recordDecision(run, AssistanceDecisionType.SKILLS_PUBLISHED, null,
+                result.published().size() + " proposed observations published; " + result.unmatched().size() + " unmatched.");
         return new PublishSkillsResult(result.published().size(), result.unmatched(), inboxView(run));
     }
 
     @Transactional
     public InboxAssistanceView dismiss(UUID runId) {
         AssistanceRun run = completed(runId, AssistanceUseCase.INBOX_STRUCTURING);
-        decisions.save(new AssistanceDecision(run, AssistanceDecisionType.DISMISSED, null,
-                "Assistance result dismissed; source and result retained."));
+        recordDecision(run, AssistanceDecisionType.DISMISSED, null,
+                "Assistance result dismissed; source and result retained.");
         return inboxView(run);
     }
 
     @Transactional(readOnly = true)
     public WeeklyAssistanceOverview weeklyOverview(UUID reviewId) {
         var review = weeklyReviews.get(reviewId);
+        var mode = privacyPolicy.assistanceContextMode();
         return new WeeklyAssistanceOverview(configuration(), review,
-                runs.findByUseCaseAndTargetIdOrderByCreatedAtDesc(AssistanceUseCase.WEEKLY_REFLECTION, reviewId)
+                visibleRuns(mode, AssistanceUseCase.WEEKLY_REFLECTION, reviewId)
                         .stream().map(this::weeklyView).toList());
     }
 
     @Transactional
-    public GenerateWeeklyResult generateWeekly(UUID reviewId, boolean confirmedTransmission) {
-        requireConfiguredAndConfirmed(confirmedTransmission);
+    public StatelessApplyResult applyStatelessFields(UUID candidateId, String artifact, Set<String> selectedFields) {
+        requireStateless();
+        if (selectedFields == null || selectedFields.isEmpty() || !ALLOWED_FIELDS.containsAll(selectedFields)) {
+            throw new IllegalArgumentException("Choose one or more supported fields from this suggestion.");
+        }
+        var context = inbox.assistanceContext(candidateId);
+        var payload = statelessArtifacts.verify(artifact, AssistanceUseCase.INBOX_STRUCTURING, candidateId,
+                sha256(json(context)));
+        InboxSuggestion suggestion = read(payload.resultPayload(), InboxSuggestion.class);
+        inbox.applyAssistedFields(candidateId, suggestion.fields(), selectedFields);
+        duplicateReview.scanItem(inbox.assistanceContext(candidateId).inboxItemId());
+        return new StatelessApplyResult(candidateId, selectedFields.stream().sorted().toList(), Instant.now());
+    }
+
+    @Transactional
+    public StatelessPublishSkillsResult publishStatelessSkills(UUID candidateId, String artifact) {
+        requireStateless();
+        var context = inbox.assistanceContext(candidateId);
+        var payload = statelessArtifacts.verify(artifact, AssistanceUseCase.INBOX_STRUCTURING, candidateId,
+                sha256(json(context)));
+        if (context.opportunityId() == null) {
+            throw new IllegalStateException("Import or link this candidate to an opportunity before publishing proposed skill evidence.");
+        }
+        InboxSuggestion suggestion = read(payload.resultPayload(), InboxSuggestion.class);
+        var result = skillEvidence.publishAssistedEvidence(context.opportunityId(),
+                suggestion.fields().description() == null ? context.rawPayload() : suggestion.fields().description(),
+                suggestion.skills().stream().map(skill -> new SkillEvidenceService.AssistedSkill(
+                        skill.name(), skill.strength(), skill.evidenceSnippet())).toList());
+        return new StatelessPublishSkillsResult(candidateId, result.published().size(), result.unmatched(), Instant.now());
+    }
+
+    @Transactional
+    public TransmissionService.PreviewView previewWeeklyTransmission(UUID reviewId) {
+        String input = json(weeklyReviews.get(reviewId));
+        return transmissions.issue(TransmissionOperation.OPENAI_WEEKLY_REFLECTION, OPENAI_DESTINATION,
+                "Draft a weekly reflection from selected local review evidence",
+                List.of("reviewPeriod", "metrics", "deltas", "existingRevisions"), input);
+    }
+
+    @Transactional
+    public GenerateWeeklyResult generateWeekly(UUID reviewId, String confirmationToken) {
+        requireConfigured();
         var review = weeklyReviews.get(reviewId);
         String input = json(review);
         String inputHash = sha256(input);
-        var existing = runs.findByUseCaseAndTargetIdAndInputHashAndProviderAndModelAndPromptVersionAndSchemaVersion(
-                AssistanceUseCase.WEEKLY_REFLECTION, reviewId, inputHash, provider.providerName(), provider.model(),
+        var mode = privacyPolicy.assistanceContextMode();
+        var existing = findReplay(mode, AssistanceUseCase.WEEKLY_REFLECTION, reviewId, inputHash,
                 WEEKLY_PROMPT, WEEKLY_SCHEMA);
         if (existing.isPresent()) return new GenerateWeeklyResult(true, weeklyView(existing.get()));
+        var transmission = transmissions.consume(confirmationToken, TransmissionOperation.OPENAI_WEEKLY_REFLECTION,
+                OPENAI_DESTINATION, input);
 
-        AssistanceRun run = runs.save(new AssistanceRun(AssistanceUseCase.WEEKLY_REFLECTION, reviewId, inputHash,
-                provider.providerName(), provider.model(), WEEKLY_PROMPT, WEEKLY_SCHEMA));
+        AssistanceRun run = new AssistanceRun(AssistanceUseCase.WEEKLY_REFLECTION, reviewId, inputHash,
+                provider.providerName(), provider.model(), WEEKLY_PROMPT, WEEKLY_SCHEMA);
+        run = retain(mode, run);
+        TransmissionOutcome outcome;
         try {
             var result = provider.generate(weeklyInstructions(), input, "weekly_reflection_draft", schema(WEEKLY_JSON_SCHEMA));
             WeeklyDraft draft = objectMapper.readValue(result.outputJson(), WeeklyDraft.class);
@@ -160,14 +244,69 @@ public class AssistanceService {
                 throw new IllegalArgumentException("The weekly draft did not contain a reflection.");
             }
             run.complete(json(draft), result.responseId(), result.inputTokens(), result.outputTokens());
+            outcome = TransmissionOutcome.SUCCESS;
         } catch (Exception exception) {
             run.fail(rootMessage(exception));
+            outcome = TransmissionOutcome.FAILED;
         }
+        transmissions.record(transmission, outcome);
         return new GenerateWeeklyResult(false, weeklyView(run));
     }
 
+    private Optional<AssistanceRun> findReplay(dev.dhruv.jobsearch.privacy.AssistanceContextMode mode,
+            AssistanceUseCase useCase, UUID targetId, String inputHash, String promptVersion, String schemaVersion) {
+        return switch (mode) {
+            case STATELESS -> Optional.empty();
+            case SESSION_ONLY -> sessionStore.findReplay(useCase, targetId, inputHash, provider.providerName(),
+                    provider.model(), promptVersion, schemaVersion);
+            case TIME_BOUND -> runs.findByUseCaseAndTargetIdAndInputHashAndProviderAndModelAndPromptVersionAndSchemaVersion(
+                    useCase, targetId, inputHash, provider.providerName(), provider.model(), promptVersion, schemaVersion);
+        };
+    }
+
+    private List<AssistanceRun> visibleRuns(dev.dhruv.jobsearch.privacy.AssistanceContextMode mode,
+            AssistanceUseCase useCase, UUID targetId) {
+        return switch (mode) {
+            case STATELESS -> List.of();
+            case SESSION_ONLY -> sessionStore.find(useCase, targetId);
+            case TIME_BOUND -> runs.findByUseCaseAndTargetIdOrderByCreatedAtDesc(useCase, targetId);
+        };
+    }
+
+    private AssistanceRun retain(dev.dhruv.jobsearch.privacy.AssistanceContextMode mode, AssistanceRun run) {
+        return switch (mode) {
+            case STATELESS -> run; // response-only; never enter application-owned durable or session storage
+            case SESSION_ONLY -> { sessionStore.put(run); yield run; }
+            case TIME_BOUND -> runs.save(run);
+        };
+    }
+
+    private void recordDecision(AssistanceRun run, AssistanceDecisionType type, String selectedFields, String note) {
+        var mode = privacyPolicy.assistanceContextMode();
+        if (mode == dev.dhruv.jobsearch.privacy.AssistanceContextMode.SESSION_ONLY) {
+            sessionStore.addDecision(run.getId(), new DecisionView(UUID.randomUUID(), type, selectedFields, note,
+                    Instant.now()));
+            return;
+        }
+        decisions.save(new AssistanceDecision(run, type, selectedFields, note));
+    }
+
+    private List<DecisionView> decisionViews(AssistanceRun run) {
+        return switch (privacyPolicy.assistanceContextMode()) {
+            case STATELESS -> List.of();
+            case SESSION_ONLY -> sessionStore.decisions(run.getId());
+            case TIME_BOUND -> decisions.findByRunIdOrderByCreatedAtDesc(run.getId()).stream()
+                    .map(DecisionView::from).toList();
+        };
+    }
+
     private AssistanceRun completed(UUID runId, AssistanceUseCase expectedUseCase) {
-        AssistanceRun run = runs.findById(runId)
+        var mode = privacyPolicy.assistanceContextMode();
+        if (mode == dev.dhruv.jobsearch.privacy.AssistanceContextMode.STATELESS) {
+            throw new IllegalStateException("Stateless assistance results are response-only and cannot be reused by run ID.");
+        }
+        AssistanceRun run = (mode == dev.dhruv.jobsearch.privacy.AssistanceContextMode.SESSION_ONLY
+                ? sessionStore.find(runId) : runs.findById(runId))
                 .orElseThrow(() -> new NotFoundException("Assistance run " + runId + " was not found."));
         if (run.getUseCase() != expectedUseCase || run.getStatus() != AssistanceRunStatus.COMPLETED) {
             throw new IllegalStateException("This completed assistance result is not available for that action.");
@@ -176,11 +315,15 @@ public class AssistanceService {
     }
 
     private InboxAssistanceView inboxView(AssistanceRun run) {
+        return inboxView(run, null);
+    }
+
+    private InboxAssistanceView inboxView(AssistanceRun run, String statelessSaveArtifact) {
         InboxSuggestion suggestion = run.getStatus() == AssistanceRunStatus.COMPLETED ? inboxSuggestion(run) : null;
         return new InboxAssistanceView(run.getId(), run.getStatus(), run.getProvider(), run.getModel(),
                 run.getPromptVersion(), run.getSchemaVersion(), run.getErrorMessage(), run.getCreatedAt(),
                 run.getCompletedAt(), run.getInputTokens(), run.getOutputTokens(), suggestion,
-                decisions.findByRunIdOrderByCreatedAtDesc(run.getId()).stream().map(DecisionView::from).toList());
+                decisionViews(run), statelessSaveArtifact);
     }
 
     private WeeklyAssistanceView weeklyView(AssistanceRun run) {
@@ -207,9 +350,14 @@ public class AssistanceService {
         }
     }
 
-    private void requireConfiguredAndConfirmed(boolean confirmedTransmission) {
+    private void requireConfigured() {
         if (!provider.configured()) throw new IllegalStateException(configuration().message());
-        if (!confirmedTransmission) throw new IllegalArgumentException("Confirm the displayed outbound content before requesting assistance.");
+    }
+
+    private void requireStateless() {
+        if (privacyPolicy.assistanceContextMode() != dev.dhruv.jobsearch.privacy.AssistanceContextMode.STATELESS) {
+            throw new IllegalStateException("This response-carried save path is available only in Stateless mode.");
+        }
     }
 
     private String inboxInstructions() {
@@ -265,12 +413,16 @@ public class AssistanceService {
     public record GenerateInboxResult(boolean replayed, InboxAssistanceView run) {}
     public record InboxAssistanceView(UUID id, AssistanceRunStatus status, String provider, String model,
             String promptVersion, String schemaVersion, String errorMessage, Instant createdAt, Instant completedAt,
-            Integer inputTokens, Integer outputTokens, InboxSuggestion suggestion, List<DecisionView> decisions) {}
+            Integer inputTokens, Integer outputTokens, InboxSuggestion suggestion, List<DecisionView> decisions,
+            String statelessSaveArtifact) {}
     public record InboxSuggestion(GenericInboxService.AssistedFields fields, List<String> responsibilities,
             List<String> requiredQualifications, List<String> preferredQualifications,
             List<SkillSuggestion> skills, List<String> warnings, List<String> reviewQuestions) {}
     public record SkillSuggestion(String name, SkillStrength strength, String evidenceSnippet) {}
     public record PublishSkillsResult(int publishedCount, List<String> unmatchedSkills, InboxAssistanceView run) {}
+    public record StatelessApplyResult(UUID candidateId, List<String> appliedFields, Instant appliedAt) {}
+    public record StatelessPublishSkillsResult(UUID candidateId, int publishedCount, List<String> unmatchedSkills,
+            Instant publishedAt) {}
     public record WeeklyAssistanceOverview(ConfigurationView configuration, WeeklyReviewService.ReviewView review,
             List<WeeklyAssistanceView> runs) {}
     public record GenerateWeeklyResult(boolean replayed, WeeklyAssistanceView run) {}

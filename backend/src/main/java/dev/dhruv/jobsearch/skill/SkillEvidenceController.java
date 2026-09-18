@@ -61,9 +61,17 @@ public class SkillEvidenceController {
 
     @PostMapping("/live-extractions")
     LiveJobDescriptionExtractionService.LiveExtractionResult fetchAndExtractLiveDescriptions(
-            @RequestBody(required = false) LiveExtractionRequest request) {
-        LiveExtractionRequest safe = request == null ? new LiveExtractionRequest(List.of()) : request;
+            @Valid @RequestBody LiveExtractionRequest request) {
         return liveExtractionService.fetchAndExtract(
+                new LiveJobDescriptionExtractionService.LiveExtractionCommand(request.opportunityIds()),
+                request.confirmationToken());
+    }
+
+    @PostMapping("/live-extractions/preview")
+    dev.dhruv.jobsearch.connected.TransmissionService.PreviewView previewLiveDescriptionTransmission(
+            @RequestBody(required = false) LiveExtractionPreviewRequest request) {
+        LiveExtractionPreviewRequest safe = request == null ? new LiveExtractionPreviewRequest(List.of()) : request;
+        return liveExtractionService.preview(
                 new LiveJobDescriptionExtractionService.LiveExtractionCommand(safe.opportunityIds()));
     }
 
@@ -133,5 +141,6 @@ public class SkillEvidenceController {
             @NotBlank String evidenceSnippet, String note) {}
     public record MergeRequest(@NotNull UUID targetSkillId) {}
     public record ExtractionRequest(List<UUID> opportunityIds, boolean includeArchived) {}
-    public record LiveExtractionRequest(List<UUID> opportunityIds) {}
+    public record LiveExtractionPreviewRequest(List<UUID> opportunityIds) {}
+    public record LiveExtractionRequest(List<UUID> opportunityIds, @NotBlank String confirmationToken) {}
 }

@@ -34,6 +34,15 @@ management:
         include: health,info
 
 app:
+  connected:
+    enabled: ${APP_CONNECTED_ENABLED:false}
+    broker-base-url: ${APP_EGRESS_BROKER_BASE_URL:}
+    broker-token: ${APP_EGRESS_BROKER_TOKEN:}
+  privacy:
+    workspace-root: ${APP_WORKSPACE_ROOT:..}
+    preparation-workspace-folder: ${APP_PREPARATION_WORKSPACE_FOLDER:../preparation-workspace}
+    cleanup:
+      poll-delay: ${APP_PRIVACY_CLEANUP_POLL_DELAY:PT1H}
   seed-demo: ${APP_SEED_DEMO:false}
   demo-mode: ${APP_DEMO_MODE:false}
   application-artifacts:
@@ -42,9 +51,7 @@ app:
     folder: ${APP_NOTES_FOLDER:../notes}
   assistance:
     openai:
-      api-key: ${OPENAI_API_KEY:}
       model: ${APP_OPENAI_MODEL:}
-      base-url: ${APP_OPENAI_BASE_URL:https://api.openai.com/v1}
   imports:
     daily-high-fit:
       enabled: ${APP_DAILY_HIGH_FIT_IMPORT_ENABLED:true}

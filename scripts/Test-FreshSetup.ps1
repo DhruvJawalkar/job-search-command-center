@@ -152,7 +152,7 @@ function Invoke-FreshMode([string]$AcceptanceMode, [int]$ModeDatabasePort, [int]
         }
 
         $migrations = [int](Invoke-DockerChecked @('exec', $container, 'psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-U', 'c6_fresh', '-d', 'c6_fresh', '-c', 'SELECT count(*) FROM flyway_schema_history WHERE success;')).Trim()
-        if ($migrations -ne 29) { throw "Expected 29 successful migrations in $AcceptanceMode mode, found $migrations." }
+        if ($migrations -ne 34) { throw "Expected 34 successful migrations in $AcceptanceMode mode, found $migrations." }
 
         $report = [ordered]@{
             checkedAt = [DateTime]::UtcNow.ToString('o')

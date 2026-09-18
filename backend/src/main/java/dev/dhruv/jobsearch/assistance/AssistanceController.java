@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 @RestController
@@ -32,7 +33,12 @@ public class AssistanceController {
     @PostMapping("/inbox/{candidateId}")
     AssistanceService.GenerateInboxResult generateInbox(@PathVariable UUID candidateId,
             @Valid @RequestBody ConfirmTransmission request) {
-        return service.generateInbox(candidateId, request.confirmedTransmission());
+        return service.generateInbox(candidateId, request.confirmationToken());
+    }
+
+    @PostMapping("/inbox/{candidateId}/transmission-preview")
+    dev.dhruv.jobsearch.connected.TransmissionService.PreviewView previewInbox(@PathVariable UUID candidateId) {
+        return service.previewInboxTransmission(candidateId);
     }
 
     @PostMapping("/runs/{runId}/apply")
@@ -57,9 +63,28 @@ public class AssistanceController {
     @PostMapping("/weekly/{reviewId}")
     AssistanceService.GenerateWeeklyResult generateWeekly(@PathVariable UUID reviewId,
             @Valid @RequestBody ConfirmTransmission request) {
-        return service.generateWeekly(reviewId, request.confirmedTransmission());
+        return service.generateWeekly(reviewId, request.confirmationToken());
     }
 
-    public record ConfirmTransmission(boolean confirmedTransmission) {}
+    @PostMapping("/stateless/inbox/{candidateId}/apply")
+    AssistanceService.StatelessApplyResult applyStateless(@PathVariable UUID candidateId,
+            @Valid @RequestBody StatelessApplyFields request) {
+        return service.applyStatelessFields(candidateId, request.artifact(), request.fields());
+    }
+
+    @PostMapping("/stateless/inbox/{candidateId}/skills")
+    AssistanceService.StatelessPublishSkillsResult publishStatelessSkills(@PathVariable UUID candidateId,
+            @Valid @RequestBody StatelessArtifact request) {
+        return service.publishStatelessSkills(candidateId, request.artifact());
+    }
+
+    @PostMapping("/weekly/{reviewId}/transmission-preview")
+    dev.dhruv.jobsearch.connected.TransmissionService.PreviewView previewWeekly(@PathVariable UUID reviewId) {
+        return service.previewWeeklyTransmission(reviewId);
+    }
+
+    public record ConfirmTransmission(@NotBlank String confirmationToken) {}
     public record ApplyFields(@NotNull Set<String> fields) {}
+    public record StatelessApplyFields(@NotBlank String artifact, @NotNull Set<String> fields) {}
+    public record StatelessArtifact(@NotBlank String artifact) {}
 }

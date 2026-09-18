@@ -4,9 +4,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
+
+import dev.dhruv.jobsearch.connected.ConnectedBrokerClient;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -14,30 +14,27 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class OpenAiAssistanceProvider implements AssistanceProvider {
 
-    private final String apiKey;
     private final String model;
-    private final RestClient client;
+    private final ConnectedBrokerClient broker;
     private final ObjectMapper objectMapper;
 
     public OpenAiAssistanceProvider(
-            @Value("${app.assistance.openai.api-key:}") String apiKey,
             @Value("${app.assistance.openai.model:}") String model,
-            @Value("${app.assistance.openai.base-url:https://api.openai.com/v1}") String baseUrl,
+            ConnectedBrokerClient broker,
             ObjectMapper objectMapper) {
-        this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.model = model == null ? "" : model.trim();
+        this.broker = broker;
         this.objectMapper = objectMapper;
-        this.client = RestClient.builder().baseUrl(baseUrl).build();
     }
 
-    @Override public boolean configured() { return !apiKey.isBlank() && !model.isBlank(); }
+    @Override public boolean configured() { return broker.configured() && !model.isBlank(); }
     @Override public String providerName() { return "OpenAI"; }
     @Override public String model() { return model.isBlank() ? "Not configured" : model; }
 
     @Override
     public ProviderResult generate(String instructions, String input, String schemaName, JsonNode schema) {
         if (!configured()) {
-            throw new IllegalStateException("AI assistance is not configured. Set OPENAI_API_KEY and APP_OPENAI_MODEL, then restart the backend.");
+            throw new IllegalStateException("AI assistance is not configured in the reviewed connected runtime.");
         }
         Map<String, Object> format = new LinkedHashMap<>();
         format.put("type", "json_schema");
@@ -53,11 +50,7 @@ public class OpenAiAssistanceProvider implements AssistanceProvider {
         body.put("text", Map.of("format", format));
         body.put("max_output_tokens", 3000);
 
-        String response = client.post().uri("/responses")
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + apiKey)
-                .body(body)
-                .retrieve().body(String.class);
+        String response = broker.postOpenAi(body);
         try {
             JsonNode root = objectMapper.readTree(response);
             String output = extractOutput(root);

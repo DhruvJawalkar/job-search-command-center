@@ -6,6 +6,12 @@ Codex is a conversational guide around the local V1 application, not an autonomo
 
 Open **Projects** in the Codex desktop app and create a local project named **Job Search Command Center**. Add the cloned `job-search-command-center` repository folder and make it the primary folder, then start a new chat inside that project. This lets the project chat read the application files, [`AGENTS.md`](../AGENTS.md), and the checked-in workflow catalog.
 
+## Keep the application and Codex boundaries separate
+
+The application's Privacy & intelligence setting governs application-owned assistant context and does not change Codex task transcripts, memories, permissions, or account retention. If the default `workspace/` is inside the project folder, it is Git-ignored but may still be within the filesystem scope available to the Codex task. Do not ask Codex to read `.env`, `postgres-data/`, backups, full contact exports, or other private files unless the selected workflow truly needs them. Never paste passwords, API keys, or unnecessary third-party personal data into the chat.
+
+Review Codex [memory controls](https://learn.chatgpt.com/docs/customization/memories) and [permissions](https://learn.chatgpt.com/docs/permissions) separately. The application can display your preferred privacy mode, but a generated instruction is guidance rather than an enforcement boundary. See the project's [Privacy notice](../PRIVACY.md) for the current cleanup limits.
+
 ## Open the local app
 
 After setup reports healthy, return to the project chat, open a **Browser** tab in the right-side panel, and enter `http://127.0.0.1:3000`. On any page, ask:

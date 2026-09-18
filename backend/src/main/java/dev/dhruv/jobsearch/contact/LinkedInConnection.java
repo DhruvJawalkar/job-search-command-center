@@ -27,7 +27,7 @@ public class LinkedInConnection {
     @Column(nullable = false, length = 1500) private String normalizedProfileUrl;
     private LocalDate connectedOn;
     @Column(nullable = false) private int sourceRow;
-    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "import_batch_id")
+    @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "import_batch_id")
     private LinkedInConnectionImportBatch importBatch;
     @Column(nullable = false) private Instant createdAt;
     @Column(nullable = false) private Instant updatedAt;
