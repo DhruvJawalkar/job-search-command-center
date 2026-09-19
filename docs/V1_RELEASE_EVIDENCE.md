@@ -72,6 +72,14 @@ This record captures the local release-candidate gates initially completed on 20
 - Twelve retained artifacts cover the resolved immutable inputs, source scan evidence, six project-image scan/SBOM bundles, and four upstream runtime-dependency reports.
 - This run intentionally left the release tag blank and publication disabled. The protected registry login, multi-architecture publication, exact published-digest rescans, signing, BuildKit/GitHub provenance attestations, digest-pinned Compose runtime acceptance, and final bundle attestation were therefore skipped rather than claimed as complete.
 
+## Protected release controls — 2026-09-19
+
+- The `container-release` GitHub environment requires approval by `DhruvJawalkar`, disallows administrator bypass, and accepts deployments only from tags matching `v*.*.*`.
+- Self-review is allowed because the personal repository currently has one release owner; the gate records explicit owner approval but does not claim independent separation of duties.
+- The active `Immutable release tags` ruleset has no bypass actor and prevents updates, deletion, and force pushes for matching `v*.*.*` source tags while still allowing initial creation.
+- `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are present as environment secrets. Their values are not stored in the repository or exposed to validation-only jobs.
+- Docker Hub immutable image-tag rules remain a post-acceptance action. They will be enabled only after the published digests pass the post-push security, signature, attestation, and runtime gates so a failed candidate can still be removed.
+
 ## Clean-install gates
 
 Two independent local data folders were used so modes could not share a database.

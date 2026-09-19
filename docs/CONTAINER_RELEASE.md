@@ -21,7 +21,9 @@ The OCI license, license-URL, and required-notice labels make the terms and crea
 
 ## Repository configuration before the first publication
 
-Create a protected GitHub environment named `container-release` and configure required reviewers. Prevent self-review when the repository plan supports it. The reviewer should compare the tag, commit, scan results, resolved base digests, Nginx and PostgreSQL digests, and license notice before approving the publish job.
+The repository uses a protected GitHub environment named `container-release`. Its required reviewers list contains only `DhruvJawalkar`, administrator bypass is disabled, and only tags matching `v*.*.*` may deploy. Self-review remains enabled because this personal repository currently has one release owner; this is an owner approval gate, not independent separation of duties. The reviewer must compare the tag, commit, scan results, resolved base digests, Nginx and PostgreSQL digests, and license notice before approving the publish job.
+
+An active GitHub tag ruleset named `Immutable release tags` targets `v*.*.*` with no bypass actor. Matching tags may be created, but updates, deletion, and force pushes are blocked. This makes the source release tag permanent once it is pushed.
 
 Configure:
 
@@ -32,6 +34,8 @@ Configure:
 | `DOCKERHUB_TOKEN` | `container-release` environment secret | Revocable Docker Hub access token with push access only to `dhruvjawalkar/job-search-command-center`. |
 
 Do not add registry credentials as Docker build arguments, image labels, Compose values, provenance parameters, or repository variables. The workflow's validation jobs do not receive the Docker Hub secrets.
+
+Docker Hub tag immutability is deliberately enabled only after the protected run completes every exact-digest scan, signature/attestation check, and runtime acceptance gate. The current workflow must push the candidate manifests before those gates can inspect their registry digests; enabling immutability earlier would prevent removal of a failed candidate. After acceptance, enable immutable-tag rules for `api-v1.0.0`, `portal-v1.0.0`, and `broker-v1.0.0` (or equivalently narrow component/version patterns) and record the setting in the release evidence. Do not use a broad rule that would freeze temporary or validation tags.
 
 Protect release tags and require the source/test, CodeQL, image, runtime-dependency, and locality checks on the release commit. Keep the `v1.0.0` tag unmoved. The workflow also refuses a manual release request unless the selected commit already carries the exact `vMAJOR.MINOR.PATCH` tag.
 
