@@ -6,6 +6,9 @@ COMPOSE_FILE="$SCRIPT_DIR/compose.yaml"
 DEFAULT_FOLDER="$SCRIPT_DIR/workspace"
 PROJECT_FOLDER=""
 MODE=""
+PROJECT_NAME=${JSCC_COMPOSE_PROJECT_NAME:-job-search-command-center}
+API_HOST_PORT=${JSCC_API_HOST_PORT:-8080}
+PORTAL_HOST_PORT=${JSCC_PORTAL_HOST_PORT:-3000}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -49,6 +52,15 @@ fi
 command -v docker >/dev/null 2>&1 || { echo 'Docker was not found. Install and start Docker, then run this script again.' >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo 'Docker is installed but is not running.' >&2; exit 1; }
 docker compose version >/dev/null 2>&1 || { echo 'Docker Compose v2 is required.' >&2; exit 1; }
+case "$PROJECT_NAME" in
+  ''|*[!A-Za-z0-9_.-]*) echo 'JSCC_COMPOSE_PROJECT_NAME may contain only letters, digits, dot, underscore, and hyphen.' >&2; exit 2 ;;
+esac
+case "$API_HOST_PORT:$PORTAL_HOST_PORT" in
+  *[!0-9:]*|:*) echo 'JSCC_API_HOST_PORT and JSCC_PORTAL_HOST_PORT must be numeric ports.' >&2; exit 2 ;;
+esac
+if [ "$API_HOST_PORT" = "$PORTAL_HOST_PORT" ]; then
+  echo 'JSCC_API_HOST_PORT and JSCC_PORTAL_HOST_PORT must be different.' >&2; exit 2
+fi
 
 for folder in postgres-data application-resumes notes daily-high-fit-job-roles linkedin-data-import preparation-workspace company-targets backups; do
   mkdir -p "$PROJECT_FOLDER/$folder"
@@ -66,6 +78,7 @@ else
     printf '%s\n' 'POSTGRES_DB=job_search' 'POSTGRES_USER=job_search'
     printf 'POSTGRES_PASSWORD=%s\n' "$PASSWORD"
     printf 'APP_SEED_DEMO=%s\nAPP_DEMO_MODE=%s\n' "$DEMO" "$DEMO"
+    printf 'APP_API_HOST_PORT=%s\nAPP_PORTAL_HOST_PORT=%s\n' "$API_HOST_PORT" "$PORTAL_HOST_PORT"
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi
@@ -75,12 +88,12 @@ if [ "$PROJECT_FOLDER" != "$SCRIPT_DIR" ]; then
 fi
 
 printf '\nBuilding and starting the local app…\n'
-docker compose --project-name job-search-command-center --env-file "$ENV_FILE" --file "$COMPOSE_FILE" up --detach --build --wait
+docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_FILE" --file "$COMPOSE_FILE" up --detach --build --wait
 
 printf '\nSetup complete.\n'
 printf 'Workspace folder: %s\n' "$PROJECT_FOLDER"
-printf '%s\n' 'App: http://127.0.0.1:3000' 'API health: http://127.0.0.1:8080/actuator/health'
+printf 'App: http://127.0.0.1:%s\nAPI health: http://127.0.0.1:%s/actuator/health\n' "$PORTAL_HOST_PORT" "$API_HOST_PORT"
 printf '\n%s\n' 'Next in Codex:'
 printf '%s\n' '  1. Return to the Job Search Command Center project chat.'
-printf '%s\n' '  2. Open a Browser tab in the right-side panel and enter http://127.0.0.1:3000.'
+printf '  2. Open a Browser tab in the right-side panel and enter http://127.0.0.1:%s.\n' "$PORTAL_HOST_PORT"
 printf '%s\n' '  3. Ask: “Help me on this page.”'

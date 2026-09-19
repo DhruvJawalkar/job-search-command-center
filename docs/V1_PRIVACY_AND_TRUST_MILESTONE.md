@@ -314,7 +314,8 @@ Document justified exceptions with VEX only after confirming applicability. Neve
 - [x] Keep cleanup receipts and runtime verification output payload-free.
 - [x] Add a reviewed connected runtime with a fixed OpenAI route and per-request validated live job-page destinations.
 - [x] Add reproducible local-only and connected-runtime contract acceptance scripts; the local/static checks and all 14 connected-runtime checks passed.
-- [ ] Record full-host macOS and Linux locality/egress acceptance; this remains parked.
+- [x] Record WSL2 Ubuntu 24.04 empty- and demo-mode locality/egress acceptance with the reusable POSIX host harness.
+- [ ] Record standalone native-Linux and macOS locality/egress acceptance, or retain those exact release limitations.
 
 ### 5. Image publication and security evidence
 
@@ -329,7 +330,8 @@ Document justified exceptions with VEX only after confirming applicability. Neve
 
 - [x] Repeat isolated clean empty- and demo-mode acceptance with all 34 migrations. Empty mode remained empty and demo mode loaded the expected synthetic dataset.
 - [x] Repeat Windows Docker Desktop runtime and fresh-install acceptance.
-- [ ] Complete the planned macOS and Linux smoke tests or explicitly record them as a release limitation.
+- [x] Complete the WSL2 Ubuntu 24.04 empty- and demo-mode smoke tests.
+- [ ] Complete native-Linux and macOS smoke tests or explicitly record them as release limitations.
 - [ ] Update Clip 01 to demonstrate privacy selection and visible local-only status.
 - [ ] Review Clips 02–07 for wording affected by the new trust model.
 - [ ] Finalize LinkedIn post copy only after the updated seven-clip set is accepted.
@@ -413,6 +415,7 @@ The milestone is complete only when all applicable criteria pass against an exac
 | 18 Sep 2026 | Connected V1 should support both the OpenAI provider and live job-page fetching. | These are the two application-controlled egress use cases required for the intended assisted workflows. | Approved |
 | 18 Sep 2026 | Application-managed backups are outside V1 scope. | Current data is recoverable but not sufficiently critical to justify automatic backup lifecycle machinery before launch. A later low-priority one-shot timestamped database dump may be added. | Approved |
 | 18 Sep 2026 | Keep macOS and Linux smoke tests parked pending reprioritization. | Windows and Compose evidence are sufficient for current development; the missing host evidence remains disclosed. | Approved |
+| 19 Sep 2026 | Resume cross-platform smoke testing with WSL2 first and pursue resource-efficient cloud evidence where it represents the claimed host. | WSL2 exercises the POSIX installer, Linux permissions, Compose runtime, persistence, and locality controls; cloud-container evidence must not be presented as macOS evidence. | Approved |
 | 18 Sep 2026 | Use Docker Hub repository `dhruvjawalkar/job-search-command-center` with component-prefixed tags. | One repository holds independently addressable API, portal, and broker manifests without requiring additional Docker Hub repositories. | Approved |
 | 18 Sep 2026 | Publish the connected egress broker as `broker-v1.0.0` alongside the API and portal. | The optional reviewed connected profile must be reproducible, scanned, and pinned independently rather than built from an unverified local context. | Approved |
 
@@ -420,7 +423,7 @@ The milestone is complete only when all applicable criteria pass against an exac
 
 These do not block the approved implementation work but must be resolved before the corresponding release step is finalized.
 
-- Reassess whether the parked macOS and Linux installation smoke tests are required before the final tag; if not, preserve the limitation in release evidence.
+- Decide whether standalone native-Linux and macOS Docker Desktop installation evidence is required before the final tag; otherwise preserve both exact limitations in release evidence.
 
 ## References
 

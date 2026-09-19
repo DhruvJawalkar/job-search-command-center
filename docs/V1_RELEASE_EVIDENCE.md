@@ -42,7 +42,17 @@ This record captures the local release-candidate gates initially completed on 20
 - Local-only/static contract checks and the static release gate passed.
 - Independent empty-mode and demo-mode fresh setup applied all 34 migrations. Empty mode stayed empty; demo mode produced the expected application and three opportunities — passed.
 - The tag-driven container-release workflow passed structural checks and local Compose rendering. Live registry publication, remote CVE/secret/config scans, signatures, SBOM/provenance verification, and public image-digest evidence remain pending.
-- macOS and Linux full-host installation/locality evidence remains pending and must be recorded as a limitation if it is not completed before the release tag.
+- Native-Linux and macOS full-host installation/locality evidence remains pending and must be recorded as a limitation if it is not completed before the release tag.
+
+## WSL2 Linux-host follow-up — 2026-09-19
+
+- Ubuntu 24.04.3 LTS under WSL2 ran the POSIX host harness from a fresh clone in the native Linux filesystem, using the normal user identity and Docker Desktop's Linux/amd64 engine.
+- Independent empty and demo workspaces passed non-interactive `setup.sh`, four-service health, 34 migrations, expected data-mode contents, gateway-only isolated loopback ports, and failed API/portal DNS and HTTPS egress probes.
+- The generated `.env` was mode `0600`; the API ran as the invoking Linux UID/GID; and an API-written bind-mount artifact retained the invoking user's ownership.
+- Database and workspace markers survived stop/start, and the unchanged gateway recovered both fixed routes after independent API and portal recreation.
+- A final empty-mode run confirmed that a fresh policy has no accepted privacy notice, connected assistance is disabled, and notice version `v1` is reported. Consent selection remains a manual browser checkpoint.
+- The first run exposed an uppercase Compose-project-name defect in the new harness; the generated name was corrected to lowercase and all subsequent runs passed. Evidence collection was also corrected to retain unique filenames for multiple modes.
+- This is valid WSL2/Linux-userland and Docker Desktop integration evidence. It does not establish standalone Linux Engine behavior, rootless Docker, SELinux/AppArmor distributions, or macOS Docker Desktop behavior.
 
 ## Clean-install gates
 
