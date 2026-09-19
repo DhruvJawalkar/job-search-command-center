@@ -65,6 +65,7 @@ Assert-NotMatch $workflow '(?m)^\s+artifact-metadata:\s*write\s*$' 'organization
 Assert-Match $workflow 'cosign sign --yes' 'keyless signing is absent'
 Assert-Match $workflow 'cosign verify' 'signature verification is absent'
 Assert-Match $workflow '--certificate-identity\s+"https://github\.com/\$\{GITHUB_REPOSITORY\}/\.github/workflows/container-release\.yml@refs/tags/\$RELEASE_TAG"' 'signature verification is not bound to the exact tag identity'
+Assert-Match $workflow '(?ms)- name:\s*Verify the GitHub provenance attestation\s+env:\s+GH_TOKEN:\s*\$\{\{ github\.token \}\}' 'GitHub attestation verification is not authenticated with the workflow token'
 Assert-Match $workflow 'pnpm audit --prod --audit-level high' 'pnpm dependency gate is absent'
 Assert-Match $workflow 'resolve node:22\.23\.2-alpine3\.24' 'the patched Node 22 Alpine base is not resolved for release builds'
 Assert-Match $workflow 'node-version:\s*"22\.23\.2"' 'the source gate is not using the patched Node 22 runtime'

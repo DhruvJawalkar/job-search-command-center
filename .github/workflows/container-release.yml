@@ -757,6 +757,7 @@ jobs:
 
       - name: Verify the GitHub provenance attestation
         env:
+          GH_TOKEN: ${{ github.token }}
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: gh attestation verify "oci://$IMAGE_REPOSITORY@$IMAGE_DIGEST" --repo "$GITHUB_REPOSITORY"
