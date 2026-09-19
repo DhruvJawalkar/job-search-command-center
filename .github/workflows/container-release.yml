@@ -129,7 +129,7 @@ jobs:
 
           maven_build_image="$(resolve maven:3.9.11-eclipse-temurin-21-alpine)"
           temurin_runtime_image="$(resolve eclipse-temurin:21-jre-alpine)"
-          node_build_image="$(resolve node:22.22-alpine)"
+          node_build_image="$(resolve node:22.23.2-alpine3.24)"
           node_runtime_image="$node_build_image"
           nginx_image="$(resolve "$NGINX_UPSTREAM")"
           postgres_image="$(resolve "$POSTGRES_UPSTREAM")"
@@ -185,7 +185,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22.22.0"
+          node-version: "22.23.2"
 
       - name: Install the locked portal dependency graph
         working-directory: frontend
@@ -269,6 +269,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      id-token: write
+      attestations: write
       security-events: write
     strategy:
       fail-fast: false
@@ -833,10 +835,127 @@ jobs:
             > release-bundle/release-manifest.json
           (cd release-bundle && sha256sum compose.yaml compose.connected.yaml gateway/nginx.conf CONNECTED_RUNTIME.md release-manifest.json LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md > SHA256SUMS)
 
+      - name: Smoke-test the exact published release images
+        shell: bash
+        run: |
+          set -euo pipefail
+          export POSTGRES_PASSWORD='release-smoke-password'
+          export CONNECTED_BROKER_TOKEN='release-smoke-token-at-least-32-characters'
+          export OPENAI_API_KEY=''
+          APP_UID="$(id -u)"
+          APP_GID="$(id -g)"
+          export APP_UID APP_GID
+
+          empty_root="$RUNNER_TEMP/release-smoke-empty"
+          demo_root="$RUNNER_TEMP/release-smoke-demo"
+          for root in "$empty_root" "$demo_root"; do
+            mkdir -p \
+              "$root/postgres-data" \
+              "$root/application-resumes" \
+              "$root/notes" \
+              "$root/daily-high-fit-job-roles" \
+              "$root/linkedin-data-import" \
+              "$root/preparation-workspace" \
+              "$root/company-targets"
+          done
+
+          compose_for() {
+            local project="$1"
+            local root="$2"
+            local demo="$3"
+            local api_port="$4"
+            local portal_port="$5"
+            local connected="$6"
+            shift 6
+            local files=(--file release-bundle/compose.yaml)
+            if [[ "$connected" == "true" ]]; then
+              files+=(--file release-bundle/compose.connected.yaml)
+            fi
+            APP_DATA_ROOT="$root" \
+            APP_SEED_DEMO="$demo" \
+            APP_DEMO_MODE="$demo" \
+            APP_API_HOST_PORT="$api_port" \
+            APP_PORTAL_HOST_PORT="$portal_port" \
+              docker compose --project-name "$project" "${files[@]}" "$@"
+          }
+
+          cleanup() {
+            compose_for jscc-release-empty "$empty_root" false 18080 13000 false down --volumes --remove-orphans || true
+            compose_for jscc-release-demo "$demo_root" true 18081 13001 true down --volumes --remove-orphans || true
+          }
+          trap cleanup EXIT
+
+          verify_stack() {
+            local project="$1"
+            local root="$2"
+            local demo="$3"
+            local api_port="$4"
+            local portal_port="$5"
+            local connected="$6"
+            local expected_applications="$7"
+            local expected_opportunities="$8"
+
+            compose_for "$project" "$root" "$demo" "$api_port" "$portal_port" "$connected" up --detach --wait --wait-timeout 240
+            curl --fail --silent --show-error "http://127.0.0.1:$api_port/actuator/health" | jq -e '.status == "UP"' >/dev/null
+            curl --fail --silent --show-error "http://127.0.0.1:$portal_port/" >/dev/null
+
+            migrations="$(compose_for "$project" "$root" "$demo" "$api_port" "$portal_port" "$connected" exec -T postgres \
+              psql -X -qAt -v ON_ERROR_STOP=1 -U job_search -d job_search \
+              -c 'SELECT count(*) FROM flyway_schema_history WHERE success;')"
+            [[ "$migrations" == "34" ]] || {
+              echo "Expected 34 successful migrations for $project; found $migrations." >&2
+              exit 1
+            }
+
+            applications="$(curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/applications" | jq 'length')"
+            opportunities="$(curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/opportunities" | jq 'length')"
+            [[ "$applications" == "$expected_applications" && "$opportunities" == "$expected_opportunities" ]] || {
+              echo "Unexpected seeded records for $project: applications=$applications opportunities=$opportunities." >&2
+              exit 1
+            }
+            curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/installation" \
+              | jq -e --argjson demo "$demo" '.demoMode == $demo' >/dev/null
+          }
+
+          verify_stack jscc-release-empty "$empty_root" false 18080 13000 false 0 0
+          verify_stack jscc-release-demo "$demo_root" true 18081 13001 true 1 3
+
+      - name: Package the verified release bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          archive="job-search-command-center-$RELEASE_TAG-compose-bundle.tar.gz"
+          source_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          tar \
+            --sort=name \
+            --mtime="@$source_epoch" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --create \
+            --gzip \
+            --file "$archive" \
+            --directory release-bundle \
+            .
+          sha256sum "$archive" > "$archive.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        id: bundle
+
+      - name: Attest the verified release bundle
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ steps.bundle.outputs.archive }}
+          create-storage-record: false
+
       - name: Preserve the digest-pinned Compose release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: compose-release-${{ needs.preflight.outputs.release_tag }}
-          path: release-bundle
+          path: |
+            release-bundle
+            ${{ steps.bundle.outputs.archive }}
+            ${{ steps.bundle.outputs.archive }}.sha256
           if-no-files-found: error
           retention-days: 90

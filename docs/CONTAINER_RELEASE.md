@@ -61,7 +61,10 @@ After explicit approval, the workflow:
 - creates GitHub-signed build provenance and platform-specific SPDX SBOM attestations;
 - emits JSON evidence with the tag, source commit, index digest, platform digests, and upstream runtime digests;
 - assembles a separately downloadable base Compose file and optional connected-mode override whose API, portal, broker, Nginx, and PostgreSQL references are all immutable digests and which have no source build contexts; and
-- validates the rendered Compose configuration before preserving the bundle and its checksums.
+- validates the rendered Compose configuration;
+- starts the exact digest-pinned published images in disposable empty/local-only and demo/connected stacks, verifies health, all 34 migrations, installation mode, and expected seed counts; and
+- packages and signs a GitHub attestation for the verified Compose bundle; and
+- preserves the bundle, archive, and checksums only after both runtime smoke tests pass.
 
 Any known fixable critical or high vulnerability blocks the workflow. Unfixed findings remain in the report and require release-owner review. An exception must document applicability and remediation; do not add an ignore rule or VEX statement solely to make a gate pass. CodeQL findings also require review because successful analysis execution is not, by itself, proof that the result set is empty.
 
