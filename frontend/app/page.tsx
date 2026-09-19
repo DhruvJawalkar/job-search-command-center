@@ -15,6 +15,7 @@ type OutreachType = "REFERRAL_REQUEST" | "INTRODUCTION_REQUEST" | "RECRUITER_MES
 type OutreachTimingFilter = "ALL" | "OVERDUE" | "NEXT_SEVEN_DAYS" | "UNSCHEDULED";
 type OutreachSort = "URGENCY" | "FOLLOW_UP" | "RECENT" | "COMPANY";
 type WorkspaceView = "overview" | "opportunities" | "outreach" | "skills" | "preparation" | "reviews" | "settings";
+type SettingsSectionId = "profile" | "privacy" | "lifecycle" | "cadence";
 
 type ActionItem = {
   applicationId: string; companyName: string; roleTitle: string; stage: ApplicationStage;
@@ -639,6 +640,7 @@ export default function Home() {
   const [privacyPolicyLoading, setPrivacyPolicyLoading] = useState(true);
   const [privacyPolicyError, setPrivacyPolicyError] = useState<string | null>(null);
   const [privacyOnboardingDismissed, setPrivacyOnboardingDismissed] = useState(false);
+  const [openSettingsSection, setOpenSettingsSection] = useState<SettingsSectionId>("profile");
   const [summaryPreferences, setSummaryPreferences] = useState<SummaryPreferences>(defaultSummaryPreferences);
   const [summaryConfigurationOpen, setSummaryConfigurationOpen] = useState(false);
 
@@ -908,6 +910,7 @@ export default function Home() {
   const openingCandidates = referralCandidates.filter((candidate) => candidate.opportunityId === referralOpening?.opportunityId && candidate.status !== "DISMISSED");
   const matchingContacts = contacts.filter((contact) => referralOpening && contact.companyName?.toLowerCase() === referralOpening.companyName.toLowerCase());
   const proposedSkillObservations = skillOverview.observations.filter((item) => item.reviewStatus === "PROPOSED");
+  const skillTaxonomyRequired = connected && !skillAutomationBusy && skillOverview.catalogSize === 0;
   const skillReviewPageCount = Math.max(1, Math.ceil(proposedSkillObservations.length / SKILL_REVIEW_PER_PAGE));
   const effectiveSkillReviewPage = Math.min(currentSkillReviewPage, skillReviewPageCount);
   const pagedSkillObservations = proposedSkillObservations.slice(
@@ -1758,7 +1761,13 @@ export default function Home() {
             <PanelHeader eyebrow="Cohort-filtered signals" title="Market skill evidence"
               count={skillOverview.proposedCount}
               action={<div className="skill-panel-actions"><button className="secondary-button" disabled={!connected || skillAutomationBusy} onClick={() => void seedSkillTaxonomy()}>{skillAutomationBusy ? "Working…" : "Seed reviewed taxonomy"}</button>
-                <button className="secondary-button" disabled={!connected || skillAutomationBusy || skillOverview.catalogSize === 0} onClick={() => void extractSkillEvidence()}>{skillAutomationBusy ? "Working…" : "Fetch & extract live descriptions"}</button>
+                <span className="skill-action-tooltip-trigger" role={skillTaxonomyRequired ? "group" : undefined}
+                  aria-label={skillTaxonomyRequired ? "Fetch & extract live descriptions unavailable" : undefined}
+                  aria-describedby={skillTaxonomyRequired ? "skill-taxonomy-required-tooltip" : undefined}
+                  tabIndex={skillTaxonomyRequired ? 0 : undefined}>
+                  <button className="secondary-button" disabled={!connected || skillAutomationBusy || skillOverview.catalogSize === 0} onClick={() => void extractSkillEvidence()}>{skillAutomationBusy ? "Working…" : "Fetch & extract live descriptions"}</button>
+                  {skillTaxonomyRequired && <span className="skill-action-tooltip" id="skill-taxonomy-required-tooltip" role="tooltip">The canonical taxonomy must be seeded first. Click &ldquo;Seed reviewed taxonomy&rdquo; to continue.</span>}
+                </span>
                 <button className="secondary-button" disabled={!connected} onClick={() => setSkillDialog({ kind: "skill" })}>+ Add skill</button>
                 <button className="primary-button" disabled={!connected || skillOverview.skills.length === 0 || feed.openings.length === 0} onClick={() => setSkillDialog({ kind: "evidence" })}>+ Capture evidence</button></div>} />
             <p className="skill-trust-note">Live job pages are fetched from each direct link and preserved as immutable full-description snapshots before matching. Workbook summaries never affect market demand. Proposed signals remain untrusted until you accept or correct them.</p>
@@ -1999,17 +2008,31 @@ export default function Home() {
             <WorkspaceIntro eyebrow="Local personalization" title="Profile, privacy, and search preferences"
               description="Control local personalization, assistant-derived context, and the role targets and preferences kept in your own database." />
             <CodexWorkflowHint />
-            <section className="panel profile-settings-panel"><ProfileSettingsForm profile={profile} connected={connected}
-              onSaved={(saved) => { setProfile(saved); setToast({ kind: "success", message: "Local profile and search preferences saved." }); }} /></section>
-            <PrivacySettingsPanel policy={privacyPolicy} loading={privacyPolicyLoading} error={privacyPolicyError} connected={connected}
-              onSaved={(saved, message) => { setPrivacyPolicy(saved); setPrivacyPolicyError(null); setToast({ kind: "success", message }); }}
-              onError={(message) => setToast({ kind: "error", message })} />
-            <DataLifecyclePanel connected={connected}
-              onMessage={(kind, message) => setToast({ kind, message })} />
-            <section className="panel automation-proposal"><PanelHeader eyebrow="Suggested operating cadence" title="Daily high-fit opening discovery" />
-              <p>Start with a daily 8:00 AM local-time search that writes a reviewed workbook into <code>daily-high-fit-job-roles</code>. Keep collection separate from application or outreach actions.</p>
-              <div><a className="secondary-button" href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md" target="_blank" rel="noreferrer">Open Codex workflow guide ↗</a>
-                <a className="text-button" href="#opportunities">Review imported openings</a></div></section>
+            <div className="settings-accordion" aria-label="Profile settings sections">
+              <SettingsAccordionSection sectionId="profile" title="Personal profile" summary="Role targets, preferences, and local personalization"
+                open={openSettingsSection === "profile"} onOpen={() => setOpenSettingsSection("profile")}>
+                <section className="panel profile-settings-panel"><ProfileSettingsForm profile={profile} connected={connected}
+                  onSaved={(saved) => { setProfile(saved); setToast({ kind: "success", message: "Local profile and search preferences saved." }); }} /></section>
+              </SettingsAccordionSection>
+              <SettingsAccordionSection sectionId="privacy" title="Data & privacy" summary="Assistance context, retention, and connected access"
+                open={openSettingsSection === "privacy"} onOpen={() => setOpenSettingsSection("privacy")}>
+                <PrivacySettingsPanel policy={privacyPolicy} loading={privacyPolicyLoading} error={privacyPolicyError} connected={connected}
+                  onSaved={(saved, message) => { setPrivacyPolicy(saved); setPrivacyPolicyError(null); setToast({ kind: "success", message }); }}
+                  onError={(message) => setToast({ kind: "error", message })} />
+              </SettingsAccordionSection>
+              <SettingsAccordionSection sectionId="lifecycle" title="Data lifecycle" summary="Inventory, export, and deletion controls"
+                open={openSettingsSection === "lifecycle"} onOpen={() => setOpenSettingsSection("lifecycle")}>
+                <DataLifecyclePanel connected={connected}
+                  onMessage={(kind, message) => setToast({ kind, message })} />
+              </SettingsAccordionSection>
+              <SettingsAccordionSection sectionId="cadence" title="Discovery cadence" summary="The suggested daily high-fit opening workflow"
+                open={openSettingsSection === "cadence"} onOpen={() => setOpenSettingsSection("cadence")}>
+                <section className="panel automation-proposal"><PanelHeader eyebrow="Suggested operating cadence" title="Daily high-fit opening discovery" />
+                  <p>Start with a daily 8:00 AM local-time search that writes a reviewed workbook into <code>daily-high-fit-job-roles</code>. Keep collection separate from application or outreach actions.</p>
+                  <div><a className="secondary-button" href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md" target="_blank" rel="noreferrer">Open Codex workflow guide ↗</a>
+                    <a className="text-button" href="#opportunities">Review imported openings</a></div></section>
+              </SettingsAccordionSection>
+            </div>
           </div>}
 
           {activeWorkspace === "overview" && <section className="roadmap-strip" id="roadmap">
@@ -2293,7 +2316,7 @@ const privacyModeOptions: { value: AssistanceContextMode; title: string; descrip
   { value: "STATELESS", title: "Stateless", description: "Do not retain application-owned assistant-derived context between interactions.",
     note: "Openings, applications, referrals, preparation work, and other records you explicitly save remain separate and are not deleted." },
   { value: "SESSION_ONLY", title: "Session only", description: "Use temporary context for the active local session, then expire it.",
-    note: "This preference does not change Codex task history or memory. Durable session-store enforcement remains a V1 release gate." },
+    note: "Temporary session context is bounded, expires after eight hours, and is cleared on restart or when the privacy mode changes." },
   { value: "TIME_BOUND", title: "Time-bound personalization", description: "Retain application-owned derived context for a limited period to improve continuity.",
     note: "Longer retention can improve personalized suggestions, while keeping more sensitive context for longer." },
 ];
@@ -2480,6 +2503,20 @@ function PanelHeader({ eyebrow, title, count, action }: { eyebrow: string; title
 }
 function WorkspaceIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
   return <header className="workspace-intro"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1></div><p>{description}</p></header>;
+}
+function SettingsAccordionSection({ sectionId, title, summary, open, onOpen, children }: {
+  sectionId: SettingsSectionId; title: string; summary: string; open: boolean; onOpen: () => void; children: React.ReactNode;
+}) {
+  const buttonId = `settings-${sectionId}-trigger`;
+  const panelId = `settings-${sectionId}-panel`;
+  return <section className={`settings-accordion-item${open ? " open" : ""}`}>
+    <h2>
+      <button id={buttonId} type="button" className="settings-accordion-trigger" aria-expanded={open} aria-controls={panelId} onClick={onOpen}>
+        <span><strong>{title}</strong><small>{summary}</small></span><i aria-hidden="true">⌄</i>
+      </button>
+    </h2>
+    <div id={panelId} className="settings-accordion-panel" role="region" aria-labelledby={buttonId} hidden={!open}>{children}</div>
+  </section>;
 }
 function CodexWorkflowHint() {
   return <aside className="codex-workflow-hint" aria-label="Codex guided workflow help">

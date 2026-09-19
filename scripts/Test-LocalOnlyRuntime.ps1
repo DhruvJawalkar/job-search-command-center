@@ -98,10 +98,15 @@ try {
     Add-Check 'Gateway root filesystem is read-only' ([bool]$gateway.read_only) "read_only=$($gateway.read_only)"
     Add-Check 'Gateway has no workspace or secret mounts' ((Get-PropertyCount $gateway 'volumes') -eq 0) 'volumes=0'
     $gatewayConfig = Get-Content -LiteralPath (Join-Path $workspace 'gateway/nginx.conf') -Raw
-    $fixedPortalRoutes = ([regex]::Matches($gatewayConfig, 'proxy_pass\s+http://portal:3000;')).Count
-    $fixedApiRoutes = ([regex]::Matches($gatewayConfig, 'proxy_pass\s+http://api:8080;')).Count
-    $dynamicRouteTokens = ([regex]::Matches($gatewayConfig, 'proxy_pass\s+[^;]*\$')).Count
-    Add-Check 'Gateway config has only fixed internal upstream routes' ($fixedPortalRoutes -eq 1 -and $fixedApiRoutes -eq 1 -and $dynamicRouteTokens -eq 0) 'portal:3000 and api:8080'
+    $dockerDnsResolver = ([regex]::Matches($gatewayConfig, '(?m)^\s*resolver\s+127\.0\.0\.11\s+valid=10s\s+ipv6=off;\s*$')).Count
+    $fixedPortalDestination = ([regex]::Matches($gatewayConfig, '(?m)^\s*set\s+\$portal_upstream\s+portal:3000;\s*$')).Count
+    $fixedApiDestination = ([regex]::Matches($gatewayConfig, '(?m)^\s*set\s+\$api_upstream\s+api:8080;\s*$')).Count
+    $portalRoute = ([regex]::Matches($gatewayConfig, '(?m)^\s*proxy_pass\s+http://\$portal_upstream;\s*$')).Count
+    $apiRoute = ([regex]::Matches($gatewayConfig, '(?m)^\s*proxy_pass\s+http://\$api_upstream;\s*$')).Count
+    $allProxyRoutes = ([regex]::Matches($gatewayConfig, '(?m)^\s*proxy_pass\s+[^;]+;\s*$')).Count
+    $userControlledUpstream = ([regex]::Matches($gatewayConfig, '(?m)^\s*proxy_pass\s+[^;]*\$(?:http_host|host|request_uri|arg_[A-Za-z0-9_]*|cookie_[A-Za-z0-9_]*|http_[A-Za-z0-9_]*|request_body)')).Count
+    Add-Check 'Gateway refreshes fixed routes through Docker DNS' ($dockerDnsResolver -eq 1 -and $fixedPortalDestination -eq 1 -and $fixedApiDestination -eq 1 -and $portalRoute -eq 1 -and $apiRoute -eq 1) 'resolver=127.0.0.11; portal:3000 and api:8080 are fixed variables'
+    Add-Check 'Gateway upstream selection is not user-controlled' ($allProxyRoutes -eq 2 -and $userControlledUpstream -eq 0) "proxy routes=$allProxyRoutes; user-controlled expressions=$userControlledUpstream"
 
     if ($Runtime) {
         $ids = @{}

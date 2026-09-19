@@ -94,3 +94,14 @@ test("connected actions require a one-time transmission preview and preserve sta
   assert.match(confirmation, /Minimized fields/);
   assert.match(confirmation, /One request only/);
 });
+
+test("live-description extraction explains its empty-taxonomy prerequisite accessibly", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /skillTaxonomyRequired = connected && !skillAutomationBusy && skillOverview\.catalogSize === 0/);
+  assert.match(source, /aria-describedby=\{skillTaxonomyRequired \? "skill-taxonomy-required-tooltip" : undefined\}/);
+  assert.match(source, /tabIndex=\{skillTaxonomyRequired \? 0 : undefined\}/);
+  assert.match(source, /The canonical taxonomy must be seeded first\. Click &ldquo;Seed reviewed taxonomy&rdquo; to continue\./);
+  assert.match(styles, /\.skill-action-tooltip-trigger:hover \.skill-action-tooltip/);
+  assert.match(styles, /\.skill-action-tooltip-trigger:focus-visible \.skill-action-tooltip/);
+});

@@ -6,7 +6,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,16 @@ class TransientRetentionServiceTest {
 
     @Autowired JdbcTemplate jdbc;
     @TempDir Path temporary;
+
+    @Test
+    void bindsRetentionCutoffsAsTimestampWithTimeZone() {
+        Instant cutoff = Instant.parse("2026-09-11T08:00:00Z");
+
+        var parameter = TransientRetentionService.timestampWithTimeZone(cutoff);
+
+        assertThat(parameter.getSqlType()).isEqualTo(Types.TIMESTAMP_WITH_TIMEZONE);
+        assertThat(parameter.getValue()).isEqualTo(OffsetDateTime.ofInstant(cutoff, ZoneOffset.UTC));
+    }
 
     @Test
     void deletesExpiredImportProvenanceButPreservesSavedConnectionsAndBoundaryRows() {
