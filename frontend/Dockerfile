@@ -4,7 +4,6 @@ ARG NODE_RUNTIME_IMAGE=node:22.22-alpine
 FROM ${NODE_BUILD_IMAGE} AS build
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
 WORKDIR /app
-ENV LOCALAPPDATA=/app/.pnpm-local
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .

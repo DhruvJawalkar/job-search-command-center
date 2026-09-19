@@ -284,6 +284,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Java for CodeQL
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4 snapshot pinned 2026-09-18
         with:

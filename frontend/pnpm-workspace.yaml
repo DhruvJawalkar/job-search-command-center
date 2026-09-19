@@ -1,8 +1,6 @@
 packages:
   - "."
 
-# Avoid placing pnpm's large virtual store inside this OneDrive-backed workspace.
-virtualStoreDir: ${LOCALAPPDATA}/pnpm/virtual-stores/job-search-command-center
 confirmModulesPurge: false
 
 onlyBuiltDependencies:
