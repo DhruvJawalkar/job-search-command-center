@@ -315,6 +315,7 @@ Document justified exceptions with VEX only after confirming applicability. Neve
 - [x] Add a reviewed connected runtime with a fixed OpenAI route and per-request validated live job-page destinations.
 - [x] Add reproducible local-only and connected-runtime contract acceptance scripts; the local/static checks and all 14 connected-runtime checks passed.
 - [x] Record WSL2 Ubuntu 24.04 empty- and demo-mode locality/egress acceptance with the reusable POSIX host harness.
+- [x] Record Apple Silicon and Intel GitHub-hosted macOS installer preflight evidence without claiming Docker Desktop runtime coverage.
 - [ ] Record standalone native-Linux and macOS locality/egress acceptance, or retain those exact release limitations.
 
 ### 5. Image publication and security evidence
@@ -331,6 +332,7 @@ Document justified exceptions with VEX only after confirming applicability. Neve
 - [x] Repeat isolated clean empty- and demo-mode acceptance with all 34 migrations. Empty mode remained empty and demo mode loaded the expected synthetic dataset.
 - [x] Repeat Windows Docker Desktop runtime and fresh-install acceptance.
 - [x] Complete the WSL2 Ubuntu 24.04 empty- and demo-mode smoke tests.
+- [x] Complete the Apple Silicon and Intel macOS installer preflight.
 - [ ] Complete native-Linux and macOS smoke tests or explicitly record them as release limitations.
 - [ ] Update Clip 01 to demonstrate privacy selection and visible local-only status.
 - [ ] Review Clips 02–07 for wording affected by the new trust model.

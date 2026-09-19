@@ -54,6 +54,14 @@ This record captures the local release-candidate gates initially completed on 20
 - The first run exposed an uppercase Compose-project-name defect in the new harness; the generated name was corrected to lowercase and all subsequent runs passed. Evidence collection was also corrected to retain unique filenames for multiple modes.
 - This is valid WSL2/Linux-userland and Docker Desktop integration evidence. It does not establish standalone Linux Engine behavior, rootless Docker, SELinux/AppArmor distributions, or macOS Docker Desktop behavior.
 
+## macOS hosted preflight follow-up — 2026-09-19
+
+- Commit `b3051780d77380394faab580f8db2abae9af8a04` passed the path-filtered [macOS installer preflight](https://github.com/DhruvJawalkar/job-search-command-center/actions/runs/35432511892).
+- The Apple Silicon lane ran on `macos-15` and verified `arm64`; the Intel lane ran on `macos-15-intel` and verified `x86_64` — both passed.
+- Each real macOS VM preserved the Git executable bits, parsed both POSIX scripts, found the required BSD/macOS utilities, cloned the repository into a path containing spaces, and verified clear Docker-not-running and Compose-v2-missing prerequisite messages.
+- Both jobs published architecture-specific JSON evidence artifacts with 30-day retention.
+- This preflight does not establish Docker Desktop runtime, bind-mount, loopback, persistence, or container-egress behavior on macOS. That exact limitation remains a release decision unless a suitable Mac host becomes available.
+
 ## Clean-install gates
 
 Two independent local data folders were used so modes could not share a database.
