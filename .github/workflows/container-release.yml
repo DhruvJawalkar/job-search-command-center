@@ -65,7 +65,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             release_tag="$GITHUB_REF_NAME"
             release_version="$release_tag"
-            publish_requested=true
+            publish_requested=false
           else
             release_tag="$REQUESTED_TAG"
             publish_requested="$REQUESTED_PUBLISH"

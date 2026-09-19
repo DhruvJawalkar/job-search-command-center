@@ -40,7 +40,8 @@ Protect release tags and require the source/test, CodeQL, image, runtime-depende
 `Container release candidate` supports:
 
 1. A manual dispatch from a branch with `release_tag` blank and `publish` left at its default `false`. This builds and scans the exact commit using a `validation-<commit>` version label, creates pre-publication SBOM evidence, and cannot enter the registry-login or publish job. An optional existing tag may be supplied for a tag-specific validation run.
-2. A manual dispatch with `publish: true` selected from the exact existing version tag ref, or an exact version-tag push. Publication without an existing `vMAJOR.MINOR.PATCH` tag is rejected. A branch-dispatched publication is also rejected, even when the commit carries the tag, so the keyless signature identity remains tag-bound. All validation jobs still run first. The `container-release` environment then pauses for manual approval before registry credentials are exposed.
+2. An exact version-tag push. This performs tag-specific validation but deliberately does not request publication.
+3. A separate manual dispatch with `publish: true` selected from the exact existing version tag ref. Publication without an existing `vMAJOR.MINOR.PATCH` tag is rejected. A branch-dispatched publication is also rejected, even when the commit carries the tag, so the keyless signature identity remains tag-bound. All validation jobs still run first. The `container-release` environment then pauses for manual approval before registry credentials are exposed.
 
 Before approval, the workflow:
 

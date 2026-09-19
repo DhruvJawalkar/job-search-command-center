@@ -41,6 +41,7 @@ Assert-Match $workflow '(?ms)^on:\s*.*?push:\s*.*?tags:\s*.*?"v\*\.\*\.\*"' 'ver
 Assert-Match $workflow '(?ms)workflow_dispatch:\s*.*?publish:\s*.*?default:\s*false' 'manual validation must default to no publication'
 Assert-Match $workflow '(?ms)release_tag:\s*.*?required:\s*false\s*.*?default:\s*""' 'commit-only validation must not require a release tag'
 Assert-Match $workflow 'release_version="validation-\$\{GITHUB_SHA:0:12\}"' 'untagged validation is not bound to the exact commit SHA'
+Assert-Match $workflow '(?ms)if \[\[ "\$GITHUB_EVENT_NAME" == "push" \]\]; then.*?publish_requested=false' 'a tag push must validate without automatically requesting publication'
 Assert-Match $workflow 'Publication requires an existing exact vMAJOR\.MINOR\.PATCH tag' 'publication does not explicitly reject a missing release tag'
 Assert-Match $workflow 'RELEASE_VERSION:\s*\$\{\{ needs\.preflight\.outputs\.release_version \}\}' 'pre-publication images do not use the resolved validation version'
 Assert-Match $workflow '(?m)^\s+environment:\s+container-release\s*$' 'publish job is not protected by the release environment'
