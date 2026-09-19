@@ -1,0 +1,537 @@
+name: Recover protected container release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable SemVer tag whose published images need final verification
+        required: true
+        default: v1.0.0
+        type: string
+      source_run_id:
+        description: Failed protected publication run that created the images and attestations
+        required: true
+        default: "35441939677"
+        type: string
+
+concurrency:
+  group: container-release-recovery-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_REPOSITORY_NAME: job-search-command-center
+  TRIVY_VERSION: v0.74.0
+
+jobs:
+  preflight:
+    name: Bind recovery to the immutable source and failed run
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      source_run_id: ${{ steps.release.outputs.source_run_id }}
+      namespace: ${{ steps.release.outputs.namespace }}
+      nginx_image: ${{ steps.dependencies.outputs.nginx_image }}
+      postgres_image: ${{ steps.dependencies.outputs.postgres_image }}
+    steps:
+      - name: Check out the immutable release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Verify the tag and original protected publication run
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CONFIGURED_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'Release tag must be an exact vMAJOR.MINOR.PATCH value.' >&2
+            exit 1
+          }
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo 'Source run ID must be numeric.' >&2
+            exit 1
+          }
+
+          source_sha="$(git rev-parse HEAD)"
+          git tag --points-at HEAD | grep -Fx -- "$RELEASE_TAG" >/dev/null
+
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          jq -e \
+            --arg sha "$source_sha" \
+            --arg tag "$RELEASE_TAG" \
+            '.head_sha == $sha and .head_branch == $tag and .event == "workflow_dispatch" and .conclusion == "failure" and .path == ".github/workflows/container-release.yml"' \
+            <<<"$run_json" >/dev/null || {
+              echo 'The selected run is not the failed protected publication for this exact tag commit.' >&2
+              exit 1
+            }
+
+          jobs_json="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?per_page=100" --slurp | jq '{jobs: map(.jobs) | add}')"
+          required_success_steps='[
+            "Gate exact published amd64 image and create its SPDX SBOM",
+            "Gate exact published arm64 image and create its SPDX SBOM",
+            "Run the independent Docker Scout fixable severity gate",
+            "Sign the gated multi-architecture digest with GitHub OIDC",
+            "Create signed GitHub build provenance for the image index",
+            "Create a signed amd64 SBOM attestation",
+            "Create a signed arm64 SBOM attestation",
+            "Verify the keyless signature identity"
+          ]'
+          for component in api portal broker; do
+            jq -e \
+              --arg job_name "Protected publish and verify ($component)" \
+              --argjson required "$required_success_steps" \
+              '[.jobs[] | select(.name == $job_name)] as $matches
+               | ($matches | length) == 1
+               and ($matches[0].conclusion == "failure")
+               and (all($required[] as $name; any($matches[0].steps[]; .name == $name and .conclusion == "success")))
+               and (any($matches[0].steps[]; .name == "Verify the GitHub provenance attestation" and .conclusion == "failure"))' \
+              <<<"$jobs_json" >/dev/null || {
+                echo "The original protected $component job did not reach the expected narrow attestation-verification failure." >&2
+                exit 1
+              }
+          done
+
+          namespace="${CONFIGURED_NAMESPACE:-$GITHUB_REPOSITORY_OWNER}"
+          namespace="$(printf '%s' "$namespace" | tr '[:upper:]' '[:lower:]')"
+          [[ "$namespace" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
+            echo 'DOCKERHUB_NAMESPACE must be a valid lowercase Docker Hub namespace.' >&2
+            exit 1
+          }
+
+          {
+            echo "release_tag=$RELEASE_TAG"
+            echo "source_sha=$source_sha"
+            echo "source_run_id=$SOURCE_RUN_ID"
+            echo "namespace=$namespace"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download the original resolved dependency evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: resolved-release-inputs
+          path: original-inputs
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Recover the original immutable runtime dependencies
+        id: dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=original-inputs/resolved-images.json
+          test -f "$evidence"
+          jq -e --arg sha "${{ steps.release.outputs.source_sha }}" '.sourceCommit == $sha' "$evidence" >/dev/null
+          nginx_image="$(jq -r '.runtimeDependencies.gateway' "$evidence")"
+          postgres_image="$(jq -r '.runtimeDependencies.database' "$evidence")"
+          for ref in "$nginx_image" "$postgres_image"; do
+            [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] || {
+              echo "Original dependency evidence contains a non-digest reference: $ref" >&2
+              exit 1
+            }
+          done
+          {
+            echo "nginx_image=$nginx_image"
+            echo "postgres_image=$postgres_image"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Preserve recovery preflight evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recovery-preflight-${{ inputs.release_tag }}
+          path: original-inputs/resolved-images.json
+          if-no-files-found: error
+          retention-days: 90
+
+  verify:
+    name: Recover and verify published evidence (${{ matrix.component }})
+    needs: preflight
+    runs-on: ubuntu-24.04
+    environment: container-release
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, portal, broker]
+    steps:
+      - name: Check out the immutable release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.preflight.outputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Reconfirm the exact source commit
+        env:
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git tag --points-at HEAD | grep -Fx -- "$RELEASE_TAG"
+
+      - name: Log in for authenticated image inspection and scanning
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Buildx for immutable digest inspection
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Install the pinned Trivy scanner
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+
+      - name: Resolve the already-published index and platform digests
+        id: image
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+          NAMESPACE: ${{ needs.preflight.outputs.namespace }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          repository="docker.io/$NAMESPACE/$IMAGE_REPOSITORY_NAME"
+          tagged_image="$repository:$COMPONENT-$RELEASE_TAG"
+          index_digest="$(docker buildx imagetools inspect "$tagged_image" | awk '/^Digest:/ {print $2; exit}')"
+          [[ "$index_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          raw_manifest="$(docker buildx imagetools inspect --raw "$repository@$index_digest")"
+          amd64_digest="$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' <<<"$raw_manifest")"
+          arm64_digest="$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest' <<<"$raw_manifest")"
+          for digest in "$amd64_digest" "$arm64_digest"; do
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          done
+          {
+            echo "repository=$repository"
+            echo "tagged_image=$tagged_image"
+            echo "index_digest=$index_digest"
+            echo "amd64_digest=$amd64_digest"
+            echo "arm64_digest=$arm64_digest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact-image source labels
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          AMD64_DIGEST: ${{ steps.image.outputs.amd64_digest }}
+          ARM64_DIGEST: ${{ steps.image.outputs.arm64_digest }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          for item in "amd64:$AMD64_DIGEST" "arm64:$ARM64_DIGEST"; do
+            arch="${item%%:*}"
+            digest="${item#*:}"
+            ref="$IMAGE_REPOSITORY@$digest"
+            docker pull --platform "linux/$arch" "$ref"
+            test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.revision\" }}' "$ref")" = "$SOURCE_SHA"
+            test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.version\" }}' "$ref")" = "$RELEASE_TAG"
+            test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.source\" }}' "$ref")" = "https://github.com/$GITHUB_REPOSITORY"
+          done
+
+      - name: Re-run the exact amd64 vulnerability gate and generate an SPDX SBOM
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          PLATFORM_DIGEST: ${{ steps.image.outputs.amd64_digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          trivy image --platform linux/amd64 --severity HIGH,CRITICAL --format json --output "trivy-recovery-$COMPONENT-amd64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/amd64 --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/amd64 --format spdx-json --output "sbom-recovery-$COMPONENT-amd64.spdx.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+
+      - name: Re-run the exact arm64 vulnerability gate and generate an SPDX SBOM
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          PLATFORM_DIGEST: ${{ steps.image.outputs.arm64_digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          trivy image --platform linux/arm64 --severity HIGH,CRITICAL --format json --output "trivy-recovery-$COMPONENT-arm64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/arm64 --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/arm64 --format spdx-json --output "sbom-recovery-$COMPONENT-arm64.spdx.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+
+      - name: Re-run the independent Docker Scout fixable severity gate
+        uses: docker/scout-action@7c6b6c3f7844478ace1ffd4e7aef649053d1f87d # v1.24.0
+        with:
+          command: cves
+          image: ${{ steps.image.outputs.repository }}@${{ steps.image.outputs.index_digest }}
+          only-severities: critical,high
+          only-fixed: true
+          exit-code: true
+          dockerhub-user: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify the original tag-bound keyless signature
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.index_digest }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/container-release.yml@refs/tags/$RELEASE_TAG" \
+            --output json \
+            "$IMAGE_REPOSITORY@$IMAGE_DIGEST" | tee "cosign-verification-$COMPONENT.json"
+
+      - name: Verify the original GitHub provenance attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.index_digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          gh attestation verify \
+            "oci://$IMAGE_REPOSITORY@$IMAGE_DIGEST" \
+            --repo "$GITHUB_REPOSITORY" \
+            | tee "github-attestation-verification-$COMPONENT.txt"
+
+      - name: Write the recovered component release record
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.index_digest }}
+          AMD64_DIGEST: ${{ steps.image.outputs.amd64_digest }}
+          ARM64_DIGEST: ${{ steps.image.outputs.arm64_digest }}
+          NGINX_IMAGE: ${{ needs.preflight.outputs.nginx_image }}
+          POSTGRES_IMAGE: ${{ needs.preflight.outputs.postgres_image }}
+        run: |
+          jq -n \
+            --arg component "$COMPONENT" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sourceCommit "$SOURCE_SHA" \
+            --arg sourceRunId "$SOURCE_RUN_ID" \
+            --arg image "$IMAGE_REPOSITORY" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg amd64Digest "$AMD64_DIGEST" \
+            --arg arm64Digest "$ARM64_DIGEST" \
+            --arg gatewayImage "$NGINX_IMAGE" \
+            --arg databaseImage "$POSTGRES_IMAGE" \
+            '{component:$component,tag:$tag,sourceCommit:$sourceCommit,recoveredFromRunId:$sourceRunId,image:$image,digest:$digest,platforms:{amd64:$amd64Digest,arm64:$arm64Digest},runtimeDependencies:{gateway:$gatewayImage,database:$databaseImage}}' \
+            > "release-$COMPONENT.json"
+
+      - name: Preserve the recovered public release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recovered-${{ matrix.component }}-evidence
+          path: |
+            release-${{ matrix.component }}.json
+            sbom-recovery-${{ matrix.component }}-*.spdx.json
+            trivy-recovery-${{ matrix.component }}-*.json
+            cosign-verification-${{ matrix.component }}.json
+            github-attestation-verification-${{ matrix.component }}.txt
+          if-no-files-found: error
+          retention-days: 90
+
+  finalize:
+    name: Recover and test the digest-pinned Compose release bundle
+    needs: [preflight, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the immutable release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.preflight.outputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Download recovered component evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: recovered-*-evidence
+          path: evidence
+          merge-multiple: true
+
+      - name: Render and validate the immutable release bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
+          NGINX_IMAGE: ${{ needs.preflight.outputs.nginx_image }}
+          POSTGRES_IMAGE: ${{ needs.preflight.outputs.postgres_image }}
+        run: |
+          set -euo pipefail
+          api_image="$(jq -r '.image + "@" + .digest' evidence/release-api.json)"
+          portal_image="$(jq -r '.image + "@" + .digest' evidence/release-portal.json)"
+          broker_image="$(jq -r '.image + "@" + .digest' evidence/release-broker.json)"
+
+          for record in evidence/release-api.json evidence/release-portal.json evidence/release-broker.json; do
+            jq -e --arg tag "$RELEASE_TAG" --arg sha "$SOURCE_SHA" --arg run "$SOURCE_RUN_ID" \
+              '.tag == $tag and .sourceCommit == $sha and .recoveredFromRunId == $run' "$record" >/dev/null
+          done
+          for ref in "$api_image" "$portal_image" "$broker_image" "$NGINX_IMAGE" "$POSTGRES_IMAGE"; do
+            [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] || {
+              echo "Release bundle rejected a non-digest image reference: $ref" >&2
+              exit 1
+            }
+          done
+
+          mkdir -p release-bundle/gateway
+          sed \
+            -e "s|__API_IMAGE__|$api_image|g" \
+            -e "s|__PORTAL_IMAGE__|$portal_image|g" \
+            -e "s|__NGINX_IMAGE__|$NGINX_IMAGE|g" \
+            -e "s|__POSTGRES_IMAGE__|$POSTGRES_IMAGE|g" \
+            .github/release/compose.release.yaml.tmpl > release-bundle/compose.yaml
+          sed -e "s|__BROKER_IMAGE__|$broker_image|g" \
+            .github/release/compose.connected.release.yaml.tmpl > release-bundle/compose.connected.yaml
+          cp gateway/nginx.conf release-bundle/gateway/nginx.conf
+          cp docs/CONNECTED_RUNTIME.md release-bundle/CONNECTED_RUNTIME.md
+          cp LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md release-bundle/
+
+          ! grep -q '__[A-Z_]*__' release-bundle/compose.yaml
+          ! grep -q '__[A-Z_]*__' release-bundle/compose.connected.yaml
+          ! grep -qE '^[[:space:]]+build:' release-bundle/compose.yaml
+          ! grep -qE '^[[:space:]]+build:' release-bundle/compose.connected.yaml
+          grep -Fx '      APP_WORKSPACE_ROOT: /workspace' release-bundle/compose.yaml >/dev/null
+          grep -Fx '      APP_PREPARATION_WORKSPACE_FOLDER: /workspace/preparation-workspace' release-bundle/compose.yaml >/dev/null
+          grep -Fx '      - /tmp:size=32m,mode=1777' release-bundle/compose.yaml >/dev/null
+          grep -Eq '^[[:space:]]*client_max_body_size[[:space:]]+16m;' release-bundle/gateway/nginx.conf
+
+          image_count="$(awk '/^[[:space:]]+image:/ { if ($2 !~ /@sha256:[0-9a-f]{64}$/) exit 2; count++ } END { print count+0 }' release-bundle/compose.yaml)"
+          connected_image_count="$(awk '/^[[:space:]]+image:/ { if ($2 !~ /@sha256:[0-9a-f]{64}$/) exit 2; count++ } END { print count+0 }' release-bundle/compose.connected.yaml)"
+          [[ "$image_count" == "4" && "$connected_image_count" == "1" ]]
+
+          mkdir -p "$RUNNER_TEMP/release-workspace"
+          APP_DATA_ROOT="$RUNNER_TEMP/release-workspace" POSTGRES_PASSWORD=release-validation-only \
+            docker compose --file release-bundle/compose.yaml config >/dev/null
+          APP_DATA_ROOT="$RUNNER_TEMP/release-workspace" POSTGRES_PASSWORD=release-validation-only \
+            CONNECTED_BROKER_TOKEN=release-validation-token-at-least-32-characters \
+            docker compose --file release-bundle/compose.yaml --file release-bundle/compose.connected.yaml config >/dev/null
+
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg sourceCommit "$SOURCE_SHA" \
+            --arg recoveredFromRunId "$SOURCE_RUN_ID" \
+            --arg api "$api_image" \
+            --arg portal "$portal_image" \
+            --arg broker "$broker_image" \
+            --arg gateway "$NGINX_IMAGE" \
+            --arg database "$POSTGRES_IMAGE" \
+            '{tag:$tag,sourceCommit:$sourceCommit,recoveredFromRunId:$recoveredFromRunId,images:{api:$api,portal:$portal,broker:$broker,gateway:$gateway,database:$database}}' \
+            > release-bundle/release-manifest.json
+          (cd release-bundle && sha256sum compose.yaml compose.connected.yaml gateway/nginx.conf CONNECTED_RUNTIME.md release-manifest.json LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md > SHA256SUMS)
+
+      - name: Smoke-test the exact published release images
+        shell: bash
+        run: |
+          set -euo pipefail
+          export POSTGRES_PASSWORD='release-smoke-password'
+          export CONNECTED_BROKER_TOKEN='release-smoke-token-at-least-32-characters'
+          export OPENAI_API_KEY=''
+          APP_UID="$(id -u)"
+          APP_GID="$(id -g)"
+          export APP_UID APP_GID
+
+          empty_root="$RUNNER_TEMP/release-smoke-empty"
+          demo_root="$RUNNER_TEMP/release-smoke-demo"
+          for root in "$empty_root" "$demo_root"; do
+            mkdir -p "$root/postgres-data" "$root/application-resumes" "$root/notes" \
+              "$root/daily-high-fit-job-roles" "$root/linkedin-data-import" \
+              "$root/preparation-workspace" "$root/company-targets"
+          done
+
+          compose_for() {
+            local project="$1" root="$2" demo="$3" api_port="$4" portal_port="$5" connected="$6"
+            shift 6
+            local files=(--file release-bundle/compose.yaml)
+            [[ "$connected" == "true" ]] && files+=(--file release-bundle/compose.connected.yaml)
+            APP_DATA_ROOT="$root" APP_SEED_DEMO="$demo" APP_DEMO_MODE="$demo" \
+            APP_API_HOST_PORT="$api_port" APP_PORTAL_HOST_PORT="$portal_port" \
+              docker compose --project-name "$project" "${files[@]}" "$@"
+          }
+          cleanup() {
+            compose_for jscc-release-empty "$empty_root" false 18080 13000 false down --volumes --remove-orphans || true
+            compose_for jscc-release-demo "$demo_root" true 18081 13001 true down --volumes --remove-orphans || true
+          }
+          trap cleanup EXIT
+
+          verify_stack() {
+            local project="$1" root="$2" demo="$3" api_port="$4" portal_port="$5" connected="$6" expected_applications="$7" expected_opportunities="$8"
+            compose_for "$project" "$root" "$demo" "$api_port" "$portal_port" "$connected" up --detach --wait --wait-timeout 240
+            curl --fail --silent --show-error "http://127.0.0.1:$api_port/actuator/health" | jq -e '.status == "UP"' >/dev/null
+            curl --fail --silent --show-error "http://127.0.0.1:$portal_port/" >/dev/null
+            migrations="$(compose_for "$project" "$root" "$demo" "$api_port" "$portal_port" "$connected" exec -T postgres \
+              psql -X -qAt -v ON_ERROR_STOP=1 -U job_search -d job_search \
+              -c 'SELECT count(*) FROM flyway_schema_history WHERE success;')"
+            [[ "$migrations" == "34" ]] || { echo "Expected 34 successful migrations for $project; found $migrations." >&2; exit 1; }
+            applications="$(curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/applications" | jq 'length')"
+            opportunities="$(curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/opportunities" | jq 'length')"
+            [[ "$applications" == "$expected_applications" && "$opportunities" == "$expected_opportunities" ]]
+            curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/installation" | jq -e --argjson demo "$demo" '.demoMode == $demo' >/dev/null
+          }
+
+          verify_stack jscc-release-empty "$empty_root" false 18080 13000 false 0 0
+          verify_stack jscc-release-demo "$demo_root" true 18081 13001 true 1 3
+
+      - name: Package the recovered verified release bundle
+        id: bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          archive="job-search-command-center-$RELEASE_TAG-compose-bundle.tar.gz"
+          source_epoch="$(git show -s --format=%ct "$SOURCE_SHA")"
+          tar --sort=name --mtime="@$source_epoch" --owner=0 --group=0 --numeric-owner \
+            --create --gzip --file "$archive" --directory release-bundle .
+          sha256sum "$archive" > "$archive.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the recovery-verified release bundle
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: ${{ steps.bundle.outputs.archive }}
+          create-storage-record: false
+
+      - name: Preserve the recovered digest-pinned Compose release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compose-release-${{ needs.preflight.outputs.release_tag }}-recovered
+          path: |
+            release-bundle
+            ${{ steps.bundle.outputs.archive }}
+            ${{ steps.bundle.outputs.archive }}.sha256
+          if-no-files-found: error
+          retention-days: 90

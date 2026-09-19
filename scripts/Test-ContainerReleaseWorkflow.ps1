@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 
 $workspace = Split-Path $PSScriptRoot -Parent
 $workflowPath = Join-Path $workspace '.github/workflows/container-release.yml'
+$recoveryWorkflowPath = Join-Path $workspace '.github/workflows/recover-container-release.yml'
 $releaseTemplatePath = Join-Path $workspace '.github/release/compose.release.yaml.tmpl'
 $connectedReleaseTemplatePath = Join-Path $workspace '.github/release/compose.connected.release.yaml.tmpl'
 $documentationPath = Join-Path $workspace 'docs/CONTAINER_RELEASE.md'
@@ -22,6 +23,9 @@ function Assert-NotMatch([string]$Content, [string]$Pattern, [string]$Descriptio
 if (!(Test-Path -LiteralPath $workflowPath -PathType Leaf)) {
     throw "Missing workflow: $workflowPath"
 }
+if (!(Test-Path -LiteralPath $recoveryWorkflowPath -PathType Leaf)) {
+    throw "Missing protected release recovery workflow: $recoveryWorkflowPath"
+}
 if (!(Test-Path -LiteralPath $documentationPath -PathType Leaf)) {
     throw "Missing release guidance: $documentationPath"
 }
@@ -33,6 +37,7 @@ if (!(Test-Path -LiteralPath $connectedReleaseTemplatePath -PathType Leaf)) {
 }
 
 $workflow = Get-Content -LiteralPath $workflowPath -Raw
+$recoveryWorkflow = Get-Content -LiteralPath $recoveryWorkflowPath -Raw
 $releaseTemplate = Get-Content -LiteralPath $releaseTemplatePath -Raw
 $connectedReleaseTemplate = Get-Content -LiteralPath $connectedReleaseTemplatePath -Raw
 $documentation = Get-Content -LiteralPath $documentationPath -Raw
@@ -92,6 +97,33 @@ Assert-Match $workflow 'job-search-command-center-\$RELEASE_TAG-compose-bundle\.
 Assert-Match $workflow 'sha256sum compose\.yaml compose\.connected\.yaml gateway/nginx\.conf CONNECTED_RUNTIME\.md release-manifest\.json' 'connected override or connected-runtime guidance is missing from release checksums'
 Assert-Match $workflow 'actions/download-artifact@[0-9a-f]{40}' 'release evidence download is absent or unpinned'
 
+Assert-Match $recoveryWorkflow '(?ms)^on:\s*workflow_dispatch:' 'release recovery must be manually dispatched'
+Assert-Match $recoveryWorkflow '(?m)^\s+environment:\s+container-release\s*$' 'release recovery verification is not protected by the release environment'
+Assert-Match $recoveryWorkflow 'ref:\s*refs/tags/\$\{\{ inputs\.release_tag \}\}' 'release recovery does not check out the requested immutable tag'
+Assert-Match $recoveryWorkflow '\.head_sha == \$sha.*?\.head_branch == \$tag.*?\.conclusion == "failure"' 'release recovery is not bound to the failed publication run and tag commit'
+Assert-Match $recoveryWorkflow 'required_success_steps[\s\S]*?Docker Scout fixable severity gate[\s\S]*?Verify the keyless signature identity[\s\S]*?GitHub provenance attestation.*?"failure"' 'release recovery does not prove the original protected jobs reached the narrow expected failure'
+Assert-Match $recoveryWorkflow 'name:\s*resolved-release-inputs[\s\S]*?run-id:\s*\$\{\{ inputs\.source_run_id \}\}' 'release recovery does not reuse the original resolved dependency evidence'
+Assert-Match $recoveryWorkflow 'GH_TOKEN:\s*\$\{\{ github\.token \}\}[\s\S]*?gh attestation verify' 'release recovery provenance verification is not authenticated'
+Assert-Match $recoveryWorkflow '--certificate-identity\s+"https://github\.com/\$\{GITHUB_REPOSITORY\}/\.github/workflows/container-release\.yml@refs/tags/\$RELEASE_TAG"' 'release recovery does not verify the original tag-bound signing identity'
+Assert-Match $recoveryWorkflow 'org\.opencontainers\.image\.revision' 'release recovery does not verify the published source revision label'
+Assert-Match $recoveryWorkflow 'trivy image --platform linux/amd64[\s\S]*?--ignore-unfixed --exit-code 1' 'release recovery lacks the exact amd64 vulnerability gate'
+Assert-Match $recoveryWorkflow 'trivy image --platform linux/arm64[\s\S]*?--ignore-unfixed --exit-code 1' 'release recovery lacks the exact arm64 vulnerability gate'
+Assert-Match $recoveryWorkflow 'docker/scout-action@[0-9a-f]{40}' 'release recovery lacks an independent Docker Scout gate'
+Assert-Match $recoveryWorkflow 'verify_stack jscc-release-empty.*false 0 0' 'release recovery lacks the empty/local-only runtime smoke test'
+Assert-Match $recoveryWorkflow 'verify_stack jscc-release-demo.*true 1 3' 'release recovery lacks the demo/connected runtime smoke test'
+Assert-Match $recoveryWorkflow 'Expected 34 successful migrations' 'release recovery does not verify the complete schema'
+Assert-Match $recoveryWorkflow 'Attest the recovery-verified release bundle' 'release recovery does not attest the accepted bundle'
+Assert-NotMatch $recoveryWorkflow 'docker/build-push-action|push:\s*true|cosign sign --yes' 'release recovery must never rebuild, push, or replace published images'
+
+$recoveryUses = [regex]::Matches($recoveryWorkflow, '(?m)^\s*-?\s*uses:\s*([^\s#]+)')
+if ($recoveryUses.Count -eq 0) { throw 'Container release workflow check failed: no recovery actions found' }
+foreach ($use in $recoveryUses) {
+    $reference = $use.Groups[1].Value
+    if ($reference -notmatch '@[0-9a-f]{40}$') {
+        throw "Container release workflow check failed: recovery action is not pinned to a full commit SHA: $reference"
+    }
+}
+
 $uses = [regex]::Matches($workflow, '(?m)^\s*-?\s*uses:\s*([^\s#]+)')
 if ($uses.Count -eq 0) { throw 'Container release workflow check failed: no actions found' }
 foreach ($use in $uses) {
@@ -115,7 +147,7 @@ Assert-Match $releaseTemplate 'APP_WORKSPACE_ROOT:\s*/workspace' 'release API wo
 Assert-Match $releaseTemplate 'APP_PREPARATION_WORKSPACE_FOLDER:\s*/workspace/preparation-workspace' 'release preparation inventory path is not fixed to its mounted folder'
 Assert-Match $releaseTemplate '/tmp:size=32m,mode=1777' 'release gateway tmpfs is too small for the supported request limit'
 Assert-Match (Get-Content -LiteralPath (Join-Path $workspace 'gateway/nginx.conf') -Raw) 'client_max_body_size\s+16m;' 'gateway upload request limit is not preserved'
-Assert-Match $documentation 'have not.*built, scanned, signed, or published' 'guidance overclaims current release evidence'
+Assert-Match $documentation 'candidates rather than an accepted release until the protected recovery workflow completes' 'guidance overclaims the incomplete recovered release'
 Assert-Match $documentation 'PolyForm Noncommercial License 1\.0\.0' 'license limitations are not explained'
 Assert-Match $documentation 'required reviewers' 'manual environment approval is not documented'
 
