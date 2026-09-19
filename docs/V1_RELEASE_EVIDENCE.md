@@ -41,7 +41,7 @@ This record captures the local release-candidate gates initially completed on 20
 - Connected-runtime structural acceptance: 14 of 14 checks passed without making an external request.
 - Local-only/static contract checks and the static release gate passed.
 - Independent empty-mode and demo-mode fresh setup applied all 34 migrations. Empty mode stayed empty; demo mode produced the expected application and three opportunities — passed.
-- The tag-driven container-release workflow passed structural checks and local Compose rendering. Live registry publication, remote CVE/secret/config scans, signatures, SBOM/provenance verification, and public image-digest evidence remain pending.
+- The tag-driven container-release workflow passed structural checks and local Compose rendering. The later pre-publication run below completed the remote source, dependency, secret, configuration, CodeQL, multi-architecture image, upstream-runtime, and SBOM gates. Registry publication, exact published-digest rescans, signatures, provenance attestations, and public image-digest evidence remain pending.
 - Native-Linux and macOS full-host installation/locality evidence remains pending and must be recorded as a limitation if it is not completed before the release tag.
 
 ## WSL2 Linux-host follow-up — 2026-09-19
@@ -61,6 +61,16 @@ This record captures the local release-candidate gates initially completed on 20
 - Each real macOS VM preserved the Git executable bits, parsed both POSIX scripts, found the required BSD/macOS utilities, cloned the repository into a path containing spaces, and verified clear Docker-not-running and Compose-v2-missing prerequisite messages.
 - Both jobs published architecture-specific JSON evidence artifacts with 30-day retention.
 - This preflight does not establish Docker Desktop runtime, bind-mount, loopback, persistence, or container-egress behavior on macOS. That exact limitation remains a release decision unless a suitable Mac host becomes available.
+
+## Container release-candidate validation — 2026-09-19
+
+- Commit `82537ab9faa29cae8bb651100ca079e4cfdf160c` passed the non-publishing [container release candidate run #4](https://github.com/DhruvJawalkar/job-search-command-center/actions/runs/35435739704).
+- Source tests and production dependency audit, secret/configuration/dependency scans, and both Java/Kotlin and JavaScript/TypeScript CodeQL analyses passed.
+- API, portal, and connected-mode broker images were independently built, scanned, and supplied with SPDX JSON SBOM evidence for both `linux/amd64` and `linux/arm64`; all six fixable high/critical project-image gates passed.
+- The exact Docker Official `nginx:1.30.5-alpine3.24-slim` dependency passed its full-report and fixable operating-system-package gates on both architectures.
+- The exact Docker Official `postgres:17.11-alpine3.24` dependency passed its fixable operating-system-package gates on both architectures. Its full reports retain the reviewed `gosu` Go-standard-library findings, and the strict target, package, Go version, 22-CVE ID set, and count assertion passed on each architecture. The applicability and remediation trigger are documented in `docs/CONTAINER_RELEASE.md`.
+- Twelve retained artifacts cover the resolved immutable inputs, source scan evidence, six project-image scan/SBOM bundles, and four upstream runtime-dependency reports.
+- This run intentionally left the release tag blank and publication disabled. The protected registry login, multi-architecture publication, exact published-digest rescans, signing, BuildKit/GitHub provenance attestations, digest-pinned Compose runtime acceptance, and final bundle attestation were therefore skipped rather than claimed as complete.
 
 ## Clean-install gates
 
