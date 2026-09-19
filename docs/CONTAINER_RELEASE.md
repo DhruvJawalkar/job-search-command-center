@@ -5,7 +5,7 @@ The container workflow prepares three project images in the confirmed Docker Hub
 - `dhruvjawalkar/job-search-command-center:api-v1.0.0` for `linux/amd64` and `linux/arm64`;
 - `dhruvjawalkar/job-search-command-center:portal-v1.0.0` for `linux/amd64` and `linux/arm64`;
 - `dhruvjawalkar/job-search-command-center:broker-v1.0.0` for `linux/amd64` and `linux/arm64`; and
-- the Docker Official `nginx:1.29-alpine` and `postgres:17-alpine` images, each resolved, scanned, and recorded by immutable multi-architecture digest.
+- the Docker Official `nginx:1.30.5-alpine3.24-slim` and `postgres:17.11-alpine3.24` images, each resolved, scanned, and recorded by immutable multi-architecture digest.
 
 The project does not rebuild, rebrand, or sign Nginx or PostgreSQL. The workflow scans both platforms of each dependency and records their upstream digests. Signatures and project attestations apply only to the API, portal, and connected-mode egress-broker images built by this repository.
 
@@ -48,7 +48,7 @@ Before approval, the workflow:
 - resolves Maven, Temurin, Node, Nginx, and PostgreSQL tags to immutable index digests;
 - runs Maven and portal tests, pnpm's production advisory gate, Trivy dependency/secret/configuration scans, and CodeQL;
 - builds API, portal, and egress-broker images independently for amd64 and arm64 without publishing;
-- records every known high/critical finding and fails on known fixable high/critical vulnerabilities;
+- records every known high/critical finding, fails project images on known fixable high/critical vulnerabilities, and applies the separately documented upstream-runtime policy below;
 - creates SPDX JSON SBOMs for the scanned project images; and
 - scans both architectures of the resolved official Nginx and PostgreSQL runtime images.
 
@@ -66,7 +66,19 @@ After explicit approval, the workflow:
 - packages and signs a GitHub attestation for the verified Compose bundle; and
 - preserves the bundle, archive, and checksums only after both runtime smoke tests pass.
 
-Any known fixable critical or high vulnerability blocks the workflow. Unfixed findings remain in the report and require release-owner review. An exception must document applicability and remediation; do not add an ignore rule or VEX statement solely to make a gate pass. CodeQL findings also require review because successful analysis execution is not, by itself, proof that the result set is empty.
+Any known fixable critical or high vulnerability in a project image blocks the workflow. For the unmodified Docker Official Nginx and PostgreSQL dependencies, the workflow preserves the full all-package high/critical report, hard-gates every fixable operating-system package finding, and rejects unexpected fixable library findings. Unfixed findings remain in the report and require release-owner review. An exception must document applicability and remediation; do not add an ignore rule or VEX statement solely to make a gate pass. CodeQL findings also require review because successful analysis execution is not, by itself, proof that the result set is empty.
+
+### Reviewed PostgreSQL `gosu` exception
+
+The pinned Docker Official `postgres:17.11-alpine3.24` image has no fixable high or critical Alpine/PostgreSQL package finding on either amd64 or arm64 under Trivy 0.74.0. Its full report does identify the bundled `usr/local/bin/gosu` 1.19.0 executable as containing Go `stdlib@v1.24.6`: one critical and 21 high findings on each architecture. The same binary and finding set are supplied by the current compatible official PostgreSQL variants, so changing between official image flavors does not remediate them.
+
+The exact reviewed IDs are:
+
+`CVE-2025-61726`, `CVE-2025-61729`, `CVE-2025-68121`, `CVE-2026-25679`, `CVE-2026-27145`, `CVE-2026-32280`, `CVE-2026-32281`, `CVE-2026-32283`, `CVE-2026-33811`, `CVE-2026-33814`, `CVE-2026-33818`, `CVE-2026-39820`, `CVE-2026-39821`, `CVE-2026-39822`, `CVE-2026-39836`, `CVE-2026-42499`, `CVE-2026-42504`, `CVE-2026-56853`, `CVE-2026-56858`, `CVE-2026-56859`, `CVE-2026-56860`, and `CVE-2026-56862`.
+
+This is a narrow upstream-binary exception, not a blanket library exclusion. The official entrypoint invokes `gosu` only when it starts as root, to replace itself with the PostgreSQL entrypoint running as the `postgres` user; `gosu` is not a persistent network-facing process. Binary-symbol inspection found neither `crypto/tls` nor `net/http` linked into this executable. The workflow therefore requires the finding target, package, installed Go version, exact 22-ID set, and count to match. A new CVE, changed binary/version, additional library target, or any Nginx library finding fails the workflow and requires review. Full JSON reports remain release evidence on both architectures.
+
+Remove this exception as soon as a compatible Docker Official PostgreSQL image ships `gosu` built with a supported Go toolchain that clears the reviewed findings. An upstream PostgreSQL or `gosu` refresh is the remediation trigger; the project must not rebuild, rebrand, or sign PostgreSQL merely to hide the upstream boundary.
 
 The exact-digest Trivy and Docker Scout gates necessarily run after the candidate manifest is pushed. If either post-publication gate fails, the run is failed: do not announce, tag as `latest`, or consume that candidate, and remove the failed tag from Docker Hub before retrying from a corrected new tag. A pushed candidate is not an accepted release until signing, attestation, verification, evidence review, and the remaining V1 gates all pass.
 
