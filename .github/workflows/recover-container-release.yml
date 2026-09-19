@@ -98,7 +98,7 @@ jobs:
               '[.jobs[] | select(.name == $job_name)] as $matches
                | ($matches | length) == 1
                and ($matches[0].conclusion == "failure")
-               and (all($required[] as $name; any($matches[0].steps[]; .name == $name and .conclusion == "success")))
+               and (($required - [$matches[0].steps[] | select(.conclusion == "success") | .name]) | length == 0)
                and (any($matches[0].steps[]; .name == "Verify the GitHub provenance attestation" and .conclusion == "failure"))' \
               <<<"$jobs_json" >/dev/null || {
                 echo "The original protected $component job did not reach the expected narrow attestation-verification failure." >&2
