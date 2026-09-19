@@ -39,8 +39,8 @@ Protect release tags and require the source/test, CodeQL, image, runtime-depende
 
 `Container release candidate` supports:
 
-1. A manual dispatch with `publish` left at its default `false`. This validates an existing tag but cannot enter the registry-login or publish job.
-2. A manual dispatch with `publish: true` selected from the exact version tag ref, or an exact version-tag push. A branch-dispatched publication is rejected, even when the commit also has the tag, so the keyless signature identity remains tag-bound. All validation jobs still run first. The `container-release` environment then pauses for manual approval before registry credentials are exposed.
+1. A manual dispatch from a branch with `release_tag` blank and `publish` left at its default `false`. This builds and scans the exact commit using a `validation-<commit>` version label, creates pre-publication SBOM evidence, and cannot enter the registry-login or publish job. An optional existing tag may be supplied for a tag-specific validation run.
+2. A manual dispatch with `publish: true` selected from the exact existing version tag ref, or an exact version-tag push. Publication without an existing `vMAJOR.MINOR.PATCH` tag is rejected. A branch-dispatched publication is also rejected, even when the commit carries the tag, so the keyless signature identity remains tag-bound. All validation jobs still run first. The `container-release` environment then pauses for manual approval before registry credentials are exposed.
 
 Before approval, the workflow:
 
@@ -99,3 +99,5 @@ Repeat these commands for the portal and broker. Use `gh attestation verify` on 
 Download `compose-release-<tag>` and verify `SHA256SUMS`, including the bundled license and notice files. Every `image:` entry in `compose.yaml` and `compose.connected.yaml` must end in an `@sha256:...` digest and neither file may contain a `build:` key. Compare its Nginx and PostgreSQL values with `resolved-images.json`, and review both architecture scan artifacts for each. Do not use this project's Cosign identity to verify either upstream dependency.
 
 Signatures establish artifact identity and integrity for the verified digest. SBOMs, provenance, dependency scans, static analysis, secret scans, and vulnerability scans are useful evidence, but they do not prove that software is vulnerability-free or that data can never leave a computer.
+
+The workflow disables GitHub artifact-metadata storage records because those linked-artifact records are organization-only and this repository is owned by an individual account. This does not disable the signed GitHub attestations or the attestations pushed with the OCI images.
