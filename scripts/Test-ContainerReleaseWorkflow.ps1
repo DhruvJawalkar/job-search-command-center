@@ -56,7 +56,7 @@ Assert-Match $workflow 'secrets\.DOCKERHUB_USERNAME' 'Docker Hub username enviro
 Assert-Match $workflow 'secrets\.DOCKERHUB_TOKEN' 'Docker Hub token environment secret is absent'
 Assert-Match $workflow 'linux/amd64,linux/arm64' 'multi-architecture publication is absent'
 Assert-Match $workflow 'component:\s*\[api, portal, broker\]' 'API, portal, and egress broker are not independently handled'
-Assert-Match $workflow 'node --test --test-isolation=none test/\*\.test\.mjs' 'egress-broker tests are absent'
+Assert-Match $workflow 'node --test test/\*\.test\.mjs' 'egress-broker tests are absent'
 Assert-Match $workflow 'provenance:\s*mode=max' 'maximum BuildKit provenance is absent'
 Assert-Match $workflow 'sbom:\s*true' 'BuildKit SBOM attestation is absent'
 Assert-Match $workflow 'actions/attest@[0-9a-f]{40}' 'signed GitHub attestations are absent or unpinned'

@@ -206,7 +206,7 @@ jobs:
 
       - name: Test the connected-mode egress broker
         working-directory: egress-broker
-        run: node --test --test-isolation=none test/*.test.mjs
+        run: node --test test/*.test.mjs
 
       - name: Scan tracked source, lockfiles, and generated Java artifacts
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
