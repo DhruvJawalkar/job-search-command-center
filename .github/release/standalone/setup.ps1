@@ -4,7 +4,8 @@ param(
     [switch]$Demo,
     [switch]$Empty,
     [ValidateRange(1,65535)][int]$PortalPort = 3000,
-    [ValidateRange(1,65535)][int]$ApiPort = 8080
+    [ValidateRange(1,65535)][int]$ApiPort = 8080,
+    [ValidateSet('standalone','codex')][string]$DistributionChannel = 'standalone'
 )
 
 Set-StrictMode -Version Latest
@@ -17,7 +18,7 @@ $defaultBase = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } elseif ($HOME) { $HO
 $defaultFolder = Join-Path $defaultBase 'JobSearchCommandCenter'
 
 Write-Host ''
-Write-Host 'Job Search Command Center — standalone Docker setup' -ForegroundColor Cyan
+Write-Host 'Job Search Command Center — published Docker setup' -ForegroundColor Cyan
 Write-Host 'This source-free installer will:'
 Write-Host '  1. Create a private local workspace and generated database password.'
 Write-Host '  2. Pull the signed release images; it will not build application source.'
@@ -80,8 +81,8 @@ if (Test-Path -LiteralPath $envFile) {
         "APP_API_HOST_PORT=$ApiPort"
         "APP_PORTAL_HOST_PORT=$PortalPort"
         "APP_VERSION=$version"
-        'APP_DISTRIBUTION_CHANNEL=standalone'
-        'APP_CODEX_GUIDANCE_ENABLED=false'
+        "APP_DISTRIBUTION_CHANNEL=$DistributionChannel"
+        "APP_CODEX_GUIDANCE_ENABLED=$(if ($DistributionChannel -eq 'codex') { 'true' } else { 'false' })"
     ) | Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
 }
 

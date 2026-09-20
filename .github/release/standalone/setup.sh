@@ -6,6 +6,7 @@ WORKSPACE_FOLDER=""
 MODE=""
 PORTAL_PORT=3000
 API_PORT=8080
+DISTRIBUTION_CHANNEL=standalone
 
 case "$(uname -s)" in
   Darwin) DEFAULT_FOLDER="$HOME/Library/Application Support/JobSearchCommandCenter" ;;
@@ -19,11 +20,17 @@ while [ "$#" -gt 0 ]; do
     --empty) MODE=empty; shift ;;
     --portal-port) PORTAL_PORT=${2:?--portal-port requires a value}; shift 2 ;;
     --api-port) API_PORT=${2:?--api-port requires a value}; shift 2 ;;
+    --distribution-channel) DISTRIBUTION_CHANNEL=${2:?--distribution-channel requires a value}; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 
-printf '\nJob Search Command Center — standalone Docker setup\n'
+case "$DISTRIBUTION_CHANNEL" in
+  standalone|codex) ;;
+  *) echo 'Distribution channel must be standalone or codex.' >&2; exit 2 ;;
+esac
+
+printf '\nJob Search Command Center — published Docker setup\n'
 printf '%s\n' 'This source-free installer will:'
 printf '%s\n' '  1. Create a private local workspace and generated database password.'
 printf '%s\n' '  2. Pull the signed release images; it will not build application source.'
@@ -84,7 +91,12 @@ else
     printf 'APP_SEED_DEMO=%s\nAPP_DEMO_MODE=%s\n' "$DEMO" "$DEMO"
     printf 'APP_API_HOST_PORT=%s\nAPP_PORTAL_HOST_PORT=%s\n' "$API_PORT" "$PORTAL_PORT"
     printf 'APP_VERSION=%s\n' "$VERSION"
-    printf '%s\n' 'APP_DISTRIBUTION_CHANNEL=standalone' 'APP_CODEX_GUIDANCE_ENABLED=false'
+    printf 'APP_DISTRIBUTION_CHANNEL=%s\n' "$DISTRIBUTION_CHANNEL"
+    if [ "$DISTRIBUTION_CHANNEL" = codex ]; then
+      printf '%s\n' 'APP_CODEX_GUIDANCE_ENABLED=true'
+    else
+      printf '%s\n' 'APP_CODEX_GUIDANCE_ENABLED=false'
+    fi
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
 fi

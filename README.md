@@ -1,5 +1,12 @@
 # Job Search Command Center
 
+> **Full source branch.** This `source` branch contains the complete application,
+> tests, Dockerfiles, migrations, and release pipeline. Most users should clone
+> the source-free [`main` branch](https://github.com/DhruvJawalkar/job-search-command-center/tree/main)
+> for the Codex-assisted published-image experience, or use the no-clone archive
+> attached to the accepted GitHub release. Use this branch when you intend to
+> inspect, build, test, or modify the implementation.
+
 A local-first command center for turning job-search activity into a deliberate operating system: discover high-fit roles, preserve evidence, manage applications and referral paths, prepare for interviews, and review progress.
 
 V1 is a complete, Docker-packaged, single-user release. It runs on your computer, starts empty by default, and offers an explicit synthetic-demo option.

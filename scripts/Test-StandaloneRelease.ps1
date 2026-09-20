@@ -31,8 +31,12 @@ foreach ($content in @($setupPowerShell,$controlPowerShell,$setupShell,$controlS
 }
 Assert-True ($controlPowerShell -match '--pull never --no-build --wait') 'PowerShell start is not a pull-only launch'
 Assert-True ($controlShell -match '--pull never --no-build --wait') 'POSIX start is not a pull-only launch'
-Assert-True ($setupPowerShell -match 'APP_CODEX_GUIDANCE_ENABLED=false') 'PowerShell setup does not select standalone UI behavior'
+Assert-True ($setupPowerShell -match "APP_CODEX_GUIDANCE_ENABLED=.*'false'") 'PowerShell setup does not select standalone UI behavior'
 Assert-True ($setupShell -match 'APP_CODEX_GUIDANCE_ENABLED=false') 'POSIX setup does not select standalone UI behavior'
+Assert-True ($setupPowerShell -match "ValidateSet\('standalone','codex'\)") 'PowerShell setup cannot select the Codex-assisted distribution channel'
+Assert-True ($setupShell -match '--distribution-channel') 'POSIX setup cannot select the Codex-assisted distribution channel'
+Assert-True ($setupPowerShell -match "DistributionChannel -eq 'codex'") 'PowerShell setup does not enable Codex guidance for the Codex channel'
+Assert-True ($setupShell -match 'DISTRIBUTION_CHANNEL.*codex') 'POSIX setup does not enable Codex guidance for the Codex channel'
 Assert-True ($setupShell -match 'PORTAL_PORT.*-le 65535') 'POSIX setup does not constrain the portal port range'
 Assert-True ($setupShell -match 'API_PORT.*-le 65535') 'POSIX setup does not constrain the API port range'
 
