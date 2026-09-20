@@ -1,0 +1,1099 @@
+name: Container release candidate
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional existing SemVer tag; leave blank for commit-only validation
+        required: false
+        default: ""
+        type: string
+      publish:
+        description: Request the protected Docker Hub publish job after all validation gates
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: container-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_REPOSITORY_NAME: job-search-command-center
+  NGINX_UPSTREAM: docker.io/library/nginx:1.30.5-alpine3.24-slim
+  POSTGRES_UPSTREAM: docker.io/library/postgres:17.11-alpine3.24
+  TRIVY_VERSION: v0.74.0
+
+jobs:
+  preflight:
+    name: Resolve immutable release inputs
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      namespace: ${{ steps.release.outputs.namespace }}
+      publish_requested: ${{ steps.release.outputs.publish_requested }}
+      maven_build_image: ${{ steps.bases.outputs.maven_build_image }}
+      temurin_runtime_image: ${{ steps.bases.outputs.temurin_runtime_image }}
+      node_build_image: ${{ steps.bases.outputs.node_build_image }}
+      node_runtime_image: ${{ steps.bases.outputs.node_runtime_image }}
+      nginx_image: ${{ steps.bases.outputs.nginx_image }}
+      postgres_image: ${{ steps.bases.outputs.postgres_image }}
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Resolve validation or release identity and derive a lowercase namespace
+        id: release
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+          CONFIGURED_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            release_tag="$GITHUB_REF_NAME"
+            release_version="$release_tag"
+            publish_requested=false
+          else
+            release_tag="$REQUESTED_TAG"
+            publish_requested="$REQUESTED_PUBLISH"
+            if [[ -n "$release_tag" ]]; then
+              release_version="$release_tag"
+            else
+              release_version="validation-${GITHUB_SHA:0:12}"
+            fi
+          fi
+
+          if [[ -n "$release_tag" ]]; then
+            [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "Release tag must be an exact vMAJOR.MINOR.PATCH value." >&2
+              exit 1
+            }
+            git tag --points-at HEAD | grep -Fx -- "$release_tag" >/dev/null || {
+              echo "The selected commit is not tagged $release_tag." >&2
+              exit 1
+            }
+          elif [[ "$publish_requested" == "true" ]]; then
+            echo "Publication requires an existing exact vMAJOR.MINOR.PATCH tag." >&2
+            exit 1
+          fi
+
+          namespace="${CONFIGURED_NAMESPACE:-$GITHUB_REPOSITORY_OWNER}"
+          namespace="$(printf '%s' "$namespace" | tr '[:upper:]' '[:lower:]')"
+          [[ "$namespace" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
+            echo "DOCKERHUB_NAMESPACE must be a valid lowercase Docker Hub namespace." >&2
+            exit 1
+          }
+          if [[ "$publish_requested" == "true" && "$GITHUB_REF" != "refs/tags/$release_tag" ]]; then
+            echo "Publication must be dispatched from refs/tags/$release_tag so the signing identity is tag-bound." >&2
+            exit 1
+          fi
+
+          {
+            echo "release_tag=$release_tag"
+            echo "release_version=$release_version"
+            echo "namespace=$namespace"
+            echo "publish_requested=$publish_requested"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx for digest resolution
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Resolve every base and gateway tag to an immutable index digest
+        id: bases
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolve() {
+            local ref="$1"
+            local digest
+            digest="$(docker buildx imagetools inspect "$ref" | awk '/^Digest:/ {print $2; exit}')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo "Could not resolve an immutable digest for $ref" >&2
+              exit 1
+            }
+            printf '%s@%s' "$ref" "$digest"
+          }
+
+          maven_build_image="$(resolve maven:3.9.11-eclipse-temurin-21-alpine)"
+          temurin_runtime_image="$(resolve eclipse-temurin:21-jre-alpine)"
+          node_build_image="$(resolve node:22.23.2-alpine3.24)"
+          node_runtime_image="$node_build_image"
+          nginx_image="$(resolve "$NGINX_UPSTREAM")"
+          postgres_image="$(resolve "$POSTGRES_UPSTREAM")"
+
+          {
+            echo "maven_build_image=$maven_build_image"
+            echo "temurin_runtime_image=$temurin_runtime_image"
+            echo "node_build_image=$node_build_image"
+            echo "node_runtime_image=$node_runtime_image"
+            echo "nginx_image=$nginx_image"
+            echo "postgres_image=$postgres_image"
+          } >> "$GITHUB_OUTPUT"
+
+          jq -n \
+            --arg source_commit "$GITHUB_SHA" \
+            --arg maven "$maven_build_image" \
+            --arg temurin "$temurin_runtime_image" \
+            --arg node "$node_build_image" \
+            --arg nginx "$nginx_image" \
+            --arg postgres "$postgres_image" \
+            '{sourceCommit:$source_commit,baseImages:{maven:$maven,temurin:$temurin,node:$node},runtimeDependencies:{gateway:$nginx,database:$postgres}}' \
+            > resolved-images.json
+
+      - name: Preserve resolved dependency evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: resolved-release-inputs
+          path: resolved-images.json
+          if-no-files-found: error
+          retention-days: 30
+
+  source_gates:
+    name: Test and scan source dependencies
+    needs: preflight
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Test the API and resolve Maven dependencies
+        working-directory: backend
+        run: mvn -B -ntp test
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.2"
+
+      - name: Install the locked portal dependency graph
+        working-directory: frontend
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.19.0 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Gate high and critical pnpm production advisories
+        working-directory: frontend
+        run: pnpm audit --prod --audit-level high
+
+      - name: Lint and test the portal
+        working-directory: frontend
+        run: |
+          pnpm lint
+          pnpm test
+
+      - name: Test the connected-mode egress broker
+        working-directory: egress-broker
+        run: node --test test/*.test.mjs
+
+      - name: Scan tracked source, lockfiles, and generated Java artifacts
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: json
+          output: trivy-source-vulnerabilities.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+
+      - name: Gate fixable high and critical source vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Gate repository secret findings
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: json
+          output: trivy-source-secrets.json
+          exit-code: "1"
+
+      - name: Gate high and critical configuration findings
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: config
+          scan-ref: .
+          format: json
+          output: trivy-configuration.json
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Preserve source scan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: source-scan-evidence
+          path: trivy-*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    needs: preflight
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: java-kotlin
+            build_mode: manual
+          - language: javascript-typescript
+            build_mode: none
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java for CodeQL
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4 snapshot pinned 2026-09-18
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build_mode }}
+
+      - name: Build Java for CodeQL
+        if: matrix.language == 'java-kotlin'
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests package
+
+      - name: Analyze source
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4 snapshot pinned 2026-09-18
+        with:
+          category: /language:${{ matrix.language }}
+
+  image_gates:
+    name: Scan ${{ matrix.component }} on linux/${{ matrix.arch }}
+    needs: [preflight, source_gates, codeql]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, portal, broker]
+        arch: [amd64, arm64]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build one architecture without publishing
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+          ARCH: ${{ matrix.arch }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.release_version }}
+          MAVEN_BUILD_IMAGE: ${{ needs.preflight.outputs.maven_build_image }}
+          TEMURIN_RUNTIME_IMAGE: ${{ needs.preflight.outputs.temurin_runtime_image }}
+          NODE_BUILD_IMAGE: ${{ needs.preflight.outputs.node_build_image }}
+          NODE_RUNTIME_IMAGE: ${{ needs.preflight.outputs.node_runtime_image }}
+        run: |
+          set -euo pipefail
+          archive="$COMPONENT-$ARCH.tar"
+          common_args=(
+            --platform "linux/$ARCH"
+            --label "org.opencontainers.image.revision=$GITHUB_SHA"
+            --label "org.opencontainers.image.version=$RELEASE_VERSION"
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+            --label "org.opencontainers.image.licenses=LicenseRef-PolyForm-Noncommercial-1.0.0"
+            --label "dev.dhruv.job-search-command-center.license-url=https://polyformproject.org/licenses/noncommercial/1.0.0"
+            --label "dev.dhruv.job-search-command-center.required-notice=Required Notice: Copyright © 2026 Dhruv Jawalkar. Job Search Command Center was created and is maintained by Dhruv Jawalkar."
+            --build-arg "APP_VERSION=$RELEASE_VERSION"
+            --build-arg "VCS_REF=$GITHUB_SHA"
+            --build-arg "SOURCE_URL=https://github.com/$GITHUB_REPOSITORY"
+            --output "type=docker,dest=$archive"
+          )
+
+          if [[ "$COMPONENT" == "api" ]]; then
+            docker buildx build \
+              "${common_args[@]}" \
+              --build-arg "MAVEN_BUILD_IMAGE=$MAVEN_BUILD_IMAGE" \
+              --build-arg "TEMURIN_RUNTIME_IMAGE=$TEMURIN_RUNTIME_IMAGE" \
+              --tag "local/jscc-api:$GITHUB_SHA-$ARCH" \
+              backend
+          elif [[ "$COMPONENT" == "portal" ]]; then
+            docker buildx build \
+              "${common_args[@]}" \
+              --build-arg "NODE_BUILD_IMAGE=$NODE_BUILD_IMAGE" \
+              --build-arg "NODE_RUNTIME_IMAGE=$NODE_RUNTIME_IMAGE" \
+              --build-arg "NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080" \
+              --tag "local/jscc-portal:$GITHUB_SHA-$ARCH" \
+              frontend
+          else
+            docker buildx build \
+              "${common_args[@]}" \
+              --build-arg "NODE_RUNTIME_IMAGE=$NODE_RUNTIME_IMAGE" \
+              --tag "local/jscc-broker:$GITHUB_SHA-$ARCH" \
+              egress-broker
+          fi
+
+      - name: Smoke-test the portal runtime on its built architecture
+        if: matrix.component == 'portal'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          image="local/jscc-portal:$GITHUB_SHA-$ARCH"
+          container="jscc-portal-$ARCH-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker load --input "portal-$ARCH.tar"
+          docker run --detach --rm \
+            --platform "linux/$ARCH" \
+            --name "$container" \
+            --publish 127.0.0.1::3000 \
+            "$image"
+          trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
+          host_port="$(docker port "$container" 3000/tcp | sed -n 's/.*://p' | sed -n '1p')"
+          test -n "$host_port"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "http://127.0.0.1:$host_port/" > portal-smoke.html; then
+              grep -F 'Job Search Command Center' portal-smoke.html >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$container" >&2
+          exit 1
+
+      - name: Report all known project-image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          input: ${{ matrix.component }}-${{ matrix.arch }}.tar
+          format: json
+          output: trivy-${{ matrix.component }}-${{ matrix.arch }}.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+
+      - name: Require zero known project-image vulnerabilities in Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          input: ${{ matrix.component }}-${{ matrix.arch }}.tar
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Generate an SPDX SBOM for the scanned image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          input: ${{ matrix.component }}-${{ matrix.arch }}.tar
+          format: spdx-json
+          output: sbom-${{ matrix.component }}-${{ matrix.arch }}.spdx.json
+          exit-code: "0"
+
+      - name: Preserve pre-publication image evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-evidence-${{ matrix.component }}-${{ matrix.arch }}
+          path: |
+            trivy-${{ matrix.component }}-${{ matrix.arch }}.json
+            sbom-${{ matrix.component }}-${{ matrix.arch }}.spdx.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  runtime_dependency_gate:
+    name: Scan official ${{ matrix.dependency }} image on linux/${{ matrix.arch }}
+    needs: [preflight, source_gates]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        dependency: [nginx, postgres]
+        arch: [amd64, arm64]
+    steps:
+      - name: Pull the resolved upstream runtime architecture
+        env:
+          DEPENDENCY: ${{ matrix.dependency }}
+          UPSTREAM_IMAGE: ${{ matrix.dependency == 'nginx' && needs.preflight.outputs.nginx_image || needs.preflight.outputs.postgres_image }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker pull --platform "linux/$ARCH" "$UPSTREAM_IMAGE"
+          docker save --output "$DEPENDENCY-$ARCH.tar" "$UPSTREAM_IMAGE"
+
+      - name: Report all high and critical runtime dependency vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          input: ${{ matrix.dependency }}-${{ matrix.arch }}.tar
+          format: json
+          output: trivy-${{ matrix.dependency }}-${{ matrix.arch }}.json
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+
+      - name: Reject unexpected fixable library findings in runtime dependencies
+        shell: bash
+        env:
+          DEPENDENCY: ${{ matrix.dependency }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          report="trivy-$DEPENDENCY-$ARCH.json"
+          postgres_gosu_allowlist='[
+            "CVE-2025-61726",
+            "CVE-2025-61729",
+            "CVE-2025-68121",
+            "CVE-2026-25679",
+            "CVE-2026-27145",
+            "CVE-2026-32280",
+            "CVE-2026-32281",
+            "CVE-2026-32283",
+            "CVE-2026-33811",
+            "CVE-2026-33814",
+            "CVE-2026-33818",
+            "CVE-2026-39820",
+            "CVE-2026-39821",
+            "CVE-2026-39822",
+            "CVE-2026-39836",
+            "CVE-2026-42499",
+            "CVE-2026-42504",
+            "CVE-2026-56853",
+            "CVE-2026-56858",
+            "CVE-2026-56859",
+            "CVE-2026-56860",
+            "CVE-2026-56862"
+          ]'
+
+          jq -e \
+            --arg dependency "$DEPENDENCY" \
+            --argjson allowed "$postgres_gosu_allowlist" \
+            '
+              [
+                .Results[]? as $result
+                | ($result.Vulnerabilities // [])[]
+                | select((.Severity == "HIGH" or .Severity == "CRITICAL") and ((.FixedVersion // "") != ""))
+                | select(($result.Class // "") != "os-pkgs")
+                | {
+                    target: $result.Target,
+                    package: .PkgName,
+                    installed: .InstalledVersion,
+                    id: .VulnerabilityID
+                  }
+              ] as $findings
+              | if $dependency == "postgres" then
+                  ($findings | length) == 22
+                  and ([ $findings[].id ] | sort) == ($allowed | sort)
+                  and all(
+                    $findings[];
+                    .target == "usr/local/bin/gosu"
+                    and .package == "stdlib"
+                    and .installed == "v1.24.6"
+                  )
+                else
+                  ($findings | length) == 0
+                end
+            ' "$report" >/dev/null || {
+              echo "Unexpected fixable library vulnerability in $DEPENDENCY on linux/$ARCH; review the full Trivy report." >&2
+              exit 1
+            }
+
+      - name: Gate fixable high and critical runtime OS-package vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          input: ${{ matrix.dependency }}-${{ matrix.arch }}.tar
+          severity: HIGH,CRITICAL
+          vuln-type: os
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Preserve runtime dependency scan evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: runtime-dependency-evidence-${{ matrix.dependency }}-${{ matrix.arch }}
+          path: trivy-${{ matrix.dependency }}-${{ matrix.arch }}.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  publish:
+    name: Protected publish and verify (${{ matrix.component }})
+    if: needs.preflight.outputs.publish_requested == 'true'
+    needs: [preflight, source_gates, codeql, image_gates, runtime_dependency_gate]
+    runs-on: ubuntu-24.04
+    environment: container-release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [api, portal, broker]
+    steps:
+      - name: Check out the exact tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Reconfirm the protected tag at the checked-out commit
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git tag --points-at HEAD | grep -Fx -- "$RELEASE_TAG"
+
+      - name: Log in only inside the protected publish job
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Prepare image coordinates and pinned build arguments
+        id: image
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+          NAMESPACE: ${{ needs.preflight.outputs.namespace }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          MAVEN_BUILD_IMAGE: ${{ needs.preflight.outputs.maven_build_image }}
+          TEMURIN_RUNTIME_IMAGE: ${{ needs.preflight.outputs.temurin_runtime_image }}
+          NODE_BUILD_IMAGE: ${{ needs.preflight.outputs.node_build_image }}
+          NODE_RUNTIME_IMAGE: ${{ needs.preflight.outputs.node_runtime_image }}
+        run: |
+          set -euo pipefail
+          if [[ "$COMPONENT" == "api" ]]; then
+            context=backend
+            {
+              echo 'build_args<<EOF'
+              echo "MAVEN_BUILD_IMAGE=$MAVEN_BUILD_IMAGE"
+              echo "TEMURIN_RUNTIME_IMAGE=$TEMURIN_RUNTIME_IMAGE"
+              echo "APP_VERSION=$RELEASE_TAG"
+              echo "VCS_REF=$GITHUB_SHA"
+              echo "SOURCE_URL=https://github.com/$GITHUB_REPOSITORY"
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+          elif [[ "$COMPONENT" == "portal" ]]; then
+            context=frontend
+            {
+              echo 'build_args<<EOF'
+              echo "NODE_BUILD_IMAGE=$NODE_BUILD_IMAGE"
+              echo "NODE_RUNTIME_IMAGE=$NODE_RUNTIME_IMAGE"
+              echo 'NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080'
+              echo "APP_VERSION=$RELEASE_TAG"
+              echo "VCS_REF=$GITHUB_SHA"
+              echo "SOURCE_URL=https://github.com/$GITHUB_REPOSITORY"
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+          else
+            context=egress-broker
+            {
+              echo 'build_args<<EOF'
+              echo "NODE_RUNTIME_IMAGE=$NODE_RUNTIME_IMAGE"
+              echo "APP_VERSION=$RELEASE_TAG"
+              echo "VCS_REF=$GITHUB_SHA"
+              echo "SOURCE_URL=https://github.com/$GITHUB_REPOSITORY"
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+          fi
+          repository="docker.io/$NAMESPACE/$IMAGE_REPOSITORY_NAME"
+          component_tag="$COMPONENT-$RELEASE_TAG"
+          {
+            echo "context=$context"
+            echo "repository=$repository"
+            echo "tagged_image=$repository:$component_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish the multi-architecture image with BuildKit attestations
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: ${{ steps.image.outputs.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tagged_image }}
+          build-args: ${{ steps.image.outputs.build_args }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.preflight.outputs.release_tag }}
+            org.opencontainers.image.licenses=LicenseRef-PolyForm-Noncommercial-1.0.0
+            dev.dhruv.job-search-command-center.license-url=https://polyformproject.org/licenses/noncommercial/1.0.0
+            dev.dhruv.job-search-command-center.required-notice=Required Notice: Copyright © 2026 Dhruv Jawalkar. Job Search Command Center was created and is maintained by Dhruv Jawalkar.
+          sbom: true
+          provenance: mode=max
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Install the pinned Trivy scanner
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          cache: true
+
+      - name: Record platform digests and scan exact published content
+        id: platforms
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          TRIVY_VERSION: ${{ env.TRIVY_VERSION }}
+        run: |
+          set -euo pipefail
+          raw_manifest="$(docker buildx imagetools inspect --raw "$IMAGE_REPOSITORY@$IMAGE_DIGEST")"
+          for arch in amd64 arm64; do
+            digest="$(jq -r --arg arch "$arch" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' <<<"$raw_manifest")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+            echo "${arch}_digest=$digest" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Gate exact published amd64 image and create its SPDX SBOM
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          PLATFORM_DIGEST: ${{ steps.platforms.outputs.amd64_digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          trivy image --platform linux/amd64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json --output "trivy-published-$COMPONENT-amd64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/amd64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/amd64 --format spdx-json --output "sbom-$COMPONENT-amd64.spdx.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+
+      - name: Gate exact published arm64 image and create its SPDX SBOM
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          PLATFORM_DIGEST: ${{ steps.platforms.outputs.arm64_digest }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          trivy image --platform linux/arm64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json --output "trivy-published-$COMPONENT-arm64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/arm64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/arm64 --format spdx-json --output "sbom-$COMPONENT-arm64.spdx.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+
+      - name: Require zero known project-image vulnerabilities in Docker Scout
+        uses: docker/scout-action@7c6b6c3f7844478ace1ffd4e7aef649053d1f87d # v1.24.0
+        with:
+          command: cves
+          image: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          only-severities: critical,high,medium,low,unspecified
+          exit-code: true
+          dockerhub-user: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Sign the gated multi-architecture digest with GitHub OIDC
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+
+      - name: Create signed GitHub build provenance for the image index
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: ${{ steps.image.outputs.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Create a signed amd64 SBOM attestation
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: ${{ steps.image.outputs.repository }}
+          subject-digest: ${{ steps.platforms.outputs.amd64_digest }}
+          sbom-path: sbom-${{ matrix.component }}-amd64.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Create a signed arm64 SBOM attestation
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-name: ${{ steps.image.outputs.repository }}
+          subject-digest: ${{ steps.platforms.outputs.arm64_digest }}
+          sbom-path: sbom-${{ matrix.component }}-arm64.spdx.json
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Verify the keyless signature identity
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/container-release.yml@refs/tags/$RELEASE_TAG" \
+            "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+
+      - name: Verify the GitHub provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: gh attestation verify "oci://$IMAGE_REPOSITORY@$IMAGE_DIGEST" --repo "$GITHUB_REPOSITORY"
+
+      - name: Write the component release record
+        shell: bash
+        env:
+          COMPONENT: ${{ matrix.component }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          AMD64_DIGEST: ${{ steps.platforms.outputs.amd64_digest }}
+          ARM64_DIGEST: ${{ steps.platforms.outputs.arm64_digest }}
+          NGINX_IMAGE: ${{ needs.preflight.outputs.nginx_image }}
+          POSTGRES_IMAGE: ${{ needs.preflight.outputs.postgres_image }}
+        run: |
+          jq -n \
+            --arg component "$COMPONENT" \
+            --arg tag "$RELEASE_TAG" \
+            --arg sourceCommit "$GITHUB_SHA" \
+            --arg image "$IMAGE_REPOSITORY" \
+            --arg digest "$IMAGE_DIGEST" \
+            --arg amd64Digest "$AMD64_DIGEST" \
+            --arg arm64Digest "$ARM64_DIGEST" \
+            --arg gatewayImage "$NGINX_IMAGE" \
+            --arg databaseImage "$POSTGRES_IMAGE" \
+            '{component:$component,tag:$tag,sourceCommit:$sourceCommit,image:$image,digest:$digest,platforms:{amd64:$amd64Digest,arm64:$arm64Digest},runtimeDependencies:{gateway:$gatewayImage,database:$databaseImage}}' \
+            > "release-$COMPONENT.json"
+
+      - name: Preserve the public release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: published-${{ matrix.component }}-evidence
+          path: |
+            release-${{ matrix.component }}.json
+            sbom-${{ matrix.component }}-*.spdx.json
+            trivy-published-${{ matrix.component }}-*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  finalize:
+    name: Assemble digest-pinned Compose release bundle
+    if: needs.preflight.outputs.publish_requested == 'true'
+    needs: [preflight, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out release templates
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download published component evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: published-*-evidence
+          path: evidence
+          merge-multiple: true
+
+      - name: Render and validate the immutable release bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          NGINX_IMAGE: ${{ needs.preflight.outputs.nginx_image }}
+          POSTGRES_IMAGE: ${{ needs.preflight.outputs.postgres_image }}
+        run: |
+          set -euo pipefail
+          api_repository="$(jq -r '.image' evidence/release-api.json)"
+          api_digest="$(jq -r '.digest' evidence/release-api.json)"
+          portal_repository="$(jq -r '.image' evidence/release-portal.json)"
+          portal_digest="$(jq -r '.digest' evidence/release-portal.json)"
+          broker_repository="$(jq -r '.image' evidence/release-broker.json)"
+          broker_digest="$(jq -r '.digest' evidence/release-broker.json)"
+          api_image="$api_repository@$api_digest"
+          portal_image="$portal_repository@$portal_digest"
+          broker_image="$broker_repository@$broker_digest"
+
+          for ref in "$api_image" "$portal_image" "$broker_image" "$NGINX_IMAGE" "$POSTGRES_IMAGE"; do
+            [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]] || {
+              echo "Release bundle rejected a non-digest image reference: $ref" >&2
+              exit 1
+            }
+          done
+
+          mkdir -p release-bundle/gateway
+          sed \
+            -e "s|__API_IMAGE__|$api_image|g" \
+            -e "s|__PORTAL_IMAGE__|$portal_image|g" \
+            -e "s|__NGINX_IMAGE__|$NGINX_IMAGE|g" \
+            -e "s|__POSTGRES_IMAGE__|$POSTGRES_IMAGE|g" \
+            .github/release/compose.release.yaml.tmpl > release-bundle/compose.yaml
+          sed \
+            -e "s|__BROKER_IMAGE__|$broker_image|g" \
+            .github/release/compose.connected.release.yaml.tmpl > release-bundle/compose.connected.yaml
+          cp gateway/nginx.conf release-bundle/gateway/nginx.conf
+          cp docs/CONNECTED_RUNTIME.md release-bundle/CONNECTED_RUNTIME.md
+          cp docs/STANDALONE_DOCKER.md release-bundle/README.md
+          cp .github/release/standalone/setup.ps1 .github/release/standalone/setup.sh release-bundle/
+          cp .github/release/standalone/jscc.ps1 .github/release/standalone/jscc.sh release-bundle/
+          cp LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md release-bundle/
+          printf '%s\n' "$RELEASE_TAG" > release-bundle/VERSION
+          chmod 0755 release-bundle/setup.sh release-bundle/jscc.sh
+
+          sh -n release-bundle/setup.sh
+          sh -n release-bundle/jscc.sh
+          pwsh -NoProfile -Command '[void][scriptblock]::Create((Get-Content -LiteralPath "release-bundle/setup.ps1" -Raw)); [void][scriptblock]::Create((Get-Content -LiteralPath "release-bundle/jscc.ps1" -Raw))'
+
+          if grep -q '__[A-Z_]*__' release-bundle/compose.yaml; then
+            echo 'Unresolved release template placeholder.' >&2
+            exit 1
+          fi
+          if grep -q '__[A-Z_]*__' release-bundle/compose.connected.yaml; then
+            echo 'Unresolved connected release template placeholder.' >&2
+            exit 1
+          fi
+          if grep -qE '^[[:space:]]+build:' release-bundle/compose.yaml; then
+            echo 'Release Compose must not contain source build contexts.' >&2
+            exit 1
+          fi
+          if grep -qE '^[[:space:]]+build:' release-bundle/compose.connected.yaml; then
+            echo 'Connected release Compose must not contain source build contexts.' >&2
+            exit 1
+          fi
+          grep -Fx '      APP_WORKSPACE_ROOT: /workspace' release-bundle/compose.yaml >/dev/null
+          grep -Fx '      APP_PREPARATION_WORKSPACE_FOLDER: /workspace/preparation-workspace' release-bundle/compose.yaml >/dev/null
+          grep -Fx '      - /tmp:size=32m,mode=1777' release-bundle/compose.yaml >/dev/null
+          grep -Eq '^[[:space:]]*client_max_body_size[[:space:]]+16m;' release-bundle/gateway/nginx.conf
+          image_count="$(awk '/^[[:space:]]+image:/ { if ($2 !~ /@sha256:[0-9a-f]{64}$/) exit 2; count++ } END { print count+0 }' release-bundle/compose.yaml)"
+          [[ "$image_count" == "4" ]]
+          connected_image_count="$(awk '/^[[:space:]]+image:/ { if ($2 !~ /@sha256:[0-9a-f]{64}$/) exit 2; count++ } END { print count+0 }' release-bundle/compose.connected.yaml)"
+          [[ "$connected_image_count" == "1" ]]
+
+          mkdir -p "$RUNNER_TEMP/release-workspace"
+          APP_DATA_ROOT="$RUNNER_TEMP/release-workspace" \
+          POSTGRES_PASSWORD=release-validation-only \
+          docker compose --file release-bundle/compose.yaml config >/dev/null
+          APP_DATA_ROOT="$RUNNER_TEMP/release-workspace" \
+          POSTGRES_PASSWORD=release-validation-only \
+          CONNECTED_BROKER_TOKEN=release-validation-token-at-least-32-characters \
+          docker compose --file release-bundle/compose.yaml --file release-bundle/compose.connected.yaml config >/dev/null
+
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg sourceCommit "$GITHUB_SHA" \
+            --arg api "$api_image" \
+            --arg portal "$portal_image" \
+            --arg broker "$broker_image" \
+            --arg gateway "$NGINX_IMAGE" \
+            --arg database "$POSTGRES_IMAGE" \
+            '{tag:$tag,sourceCommit:$sourceCommit,images:{api:$api,portal:$portal,broker:$broker,gateway:$gateway,database:$database}}' \
+            > release-bundle/release-manifest.json
+          (cd release-bundle && sha256sum compose.yaml compose.connected.yaml gateway/nginx.conf README.md CONNECTED_RUNTIME.md release-manifest.json VERSION setup.ps1 setup.sh jscc.ps1 jscc.sh LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md > SHA256SUMS)
+
+      - name: Smoke-test the exact published release images
+        shell: bash
+        run: |
+          set -euo pipefail
+          export POSTGRES_PASSWORD='release-smoke-password'
+          export CONNECTED_BROKER_TOKEN='release-smoke-token-at-least-32-characters'
+          export OPENAI_API_KEY=''
+          export APP_VERSION="${{ needs.preflight.outputs.release_version }}"
+          export APP_DISTRIBUTION_CHANNEL=standalone
+          export APP_CODEX_GUIDANCE_ENABLED=false
+          APP_UID="$(id -u)"
+          APP_GID="$(id -g)"
+          export APP_UID APP_GID
+
+          empty_root="$RUNNER_TEMP/release-smoke-empty"
+          demo_root="$RUNNER_TEMP/release-smoke-demo"
+          for root in "$empty_root" "$demo_root"; do
+            mkdir -p \
+              "$root/postgres-data" \
+              "$root/application-resumes" \
+              "$root/notes" \
+              "$root/daily-high-fit-job-roles" \
+              "$root/linkedin-data-import" \
+              "$root/preparation-workspace" \
+              "$root/company-targets"
+          done
+
+          compose_for() {
+            local project="$1"
+            local root="$2"
+            local demo="$3"
+            local api_port="$4"
+            local portal_port="$5"
+            local connected="$6"
+            shift 6
+            local files=(--file release-bundle/compose.yaml)
+            if [[ "$connected" == "true" ]]; then
+              files+=(--file release-bundle/compose.connected.yaml)
+            fi
+            APP_DATA_ROOT="$root" \
+            APP_SEED_DEMO="$demo" \
+            APP_DEMO_MODE="$demo" \
+            APP_API_HOST_PORT="$api_port" \
+            APP_PORTAL_HOST_PORT="$portal_port" \
+              docker compose --project-name "$project" "${files[@]}" "$@"
+          }
+
+          cleanup() {
+            compose_for jscc-release-empty "$empty_root" false 18080 13000 false down --volumes --remove-orphans || true
+            compose_for jscc-release-demo "$demo_root" true 18081 13001 true down --volumes --remove-orphans || true
+          }
+          trap cleanup EXIT
+
+          verify_stack() {
+            local project="$1"
+            local root="$2"
+            local demo="$3"
+            local api_port="$4"
+            local portal_port="$5"
+            local connected="$6"
+            local expected_applications="$7"
+            local expected_opportunities="$8"
+
+            compose_for "$project" "$root" "$demo" "$api_port" "$portal_port" "$connected" up --detach --wait --wait-timeout 240
+            curl --fail --silent --show-error "http://127.0.0.1:$api_port/actuator/health" | jq -e '.status == "UP"' >/dev/null
+            curl --fail --silent --show-error "http://127.0.0.1:$portal_port/" >/dev/null
+
+            migrations="$(compose_for "$project" "$root" "$demo" "$api_port" "$portal_port" "$connected" exec -T postgres \
+              psql -X -qAt -v ON_ERROR_STOP=1 -U job_search -d job_search \
+              -c 'SELECT count(*) FROM flyway_schema_history WHERE success;')"
+            [[ "$migrations" == "34" ]] || {
+              echo "Expected 34 successful migrations for $project; found $migrations." >&2
+              exit 1
+            }
+
+            applications="$(curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/applications" | jq 'length')"
+            opportunities="$(curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/opportunities" | jq 'length')"
+            [[ "$applications" == "$expected_applications" && "$opportunities" == "$expected_opportunities" ]] || {
+              echo "Unexpected seeded records for $project: applications=$applications opportunities=$opportunities." >&2
+              exit 1
+            }
+            curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/installation" \
+              | jq -e --argjson demo "$demo" \
+                '.demoMode == $demo and .distributionChannel == "standalone" and .codexGuidanceEnabled == false' >/dev/null
+          }
+
+          verify_stack jscc-release-empty "$empty_root" false 18080 13000 false 0 0
+          verify_stack jscc-release-demo "$demo_root" true 18081 13001 true 1 3
+
+      - name: Package the verified release bundle
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          archive="job-search-command-center-$RELEASE_TAG-standalone.tar.gz"
+          zip_archive="job-search-command-center-$RELEASE_TAG-standalone.zip"
+          source_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          tar \
+            --sort=name \
+            --mtime="@$source_epoch" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --create \
+            --gzip \
+            --file "$archive" \
+            --directory release-bundle \
+            .
+          (cd release-bundle && zip -X -q -r "../$zip_archive" .)
+          sha256sum "$archive" "$zip_archive" > "job-search-command-center-$RELEASE_TAG-standalone.SHA256SUMS"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "zip_archive=$zip_archive" >> "$GITHUB_OUTPUT"
+          echo "checksums=job-search-command-center-$RELEASE_TAG-standalone.SHA256SUMS" >> "$GITHUB_OUTPUT"
+        id: bundle
+
+      - name: Attest the verified release bundle
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            ${{ steps.bundle.outputs.archive }}
+            ${{ steps.bundle.outputs.zip_archive }}
+          create-storage-record: true
+
+      - name: Publish durable standalone assets on the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          ARCHIVE: ${{ steps.bundle.outputs.archive }}
+          ZIP_ARCHIVE: ${{ steps.bundle.outputs.zip_archive }}
+          CHECKSUMS: ${{ steps.bundle.outputs.checksums }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A GitHub Release already exists for $RELEASE_TAG; refusing to replace immutable assets." >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Job Search Command Center $RELEASE_TAG" \
+            --notes "Source-available V1 release with signed multi-architecture images, provenance, SBOM attestations, and a digest-pinned standalone Docker bundle. See README.md inside the bundle before adding personal data." \
+            "$ARCHIVE" "$ZIP_ARCHIVE" "$CHECKSUMS"
+
+      - name: Preserve the digest-pinned Compose release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: compose-release-${{ needs.preflight.outputs.release_tag }}
+          path: |
+            release-bundle
+            ${{ steps.bundle.outputs.archive }}
+            ${{ steps.bundle.outputs.zip_archive }}
+            ${{ steps.bundle.outputs.checksums }}
+          if-no-files-found: error
+          retention-days: 90

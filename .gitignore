@@ -1,0 +1,64 @@
+# Local application workspace and user data
+/workspace/
+/job-search-command-center-local/
+/postgres-data/
+/application-resumes/
+/notes/
+/daily-high-fit-job-roles/
+/linkedin-data-import/
+/preparation-workspace/
+/company-targets/
+/backups/
+/output/
+/tmp/
+
+# Build output may remain in a shared development worktree when switching branches.
+backend/target/
+frontend/node_modules/
+frontend/.next/
+frontend/.vinext/
+frontend/.wrangler/
+frontend/dist/
+.pnpm-store/
+
+# Secrets, credentials, exports, and local databases
+.env
+**/.env
+**/.env.*
+credentials*.json
+client_secret*.json
+*oauth-credentials*.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+.pgpass
+pgpass.conf
+*.log
+*.zip
+
+# Browser, tool, and operating-system state
+.auth/
+**/.auth/
+**/.codex/
+**/.codex-tmp/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Public fictional examples remain versioned.
+!samples/
+!samples/daily-high-fit-job-roles/
+!samples/daily-high-fit-job-roles/*.xlsx
+!samples/daily-high-fit-job-roles/*.txt
+!samples/daily-high-fit-job-roles/README.md
