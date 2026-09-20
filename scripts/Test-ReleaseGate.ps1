@@ -25,6 +25,7 @@ try {
     Assert-Contains 'compose.yaml' '127\.0\.0\.1:\$\{APP_PORTAL_HOST_PORT:-3000\}:3000' 'Gateway publishes portal route on loopback'
     Assert-Contains 'backend/pom.xml' '<jackson-bom\.version>3\.1\.5</jackson-bom\.version>' 'API uses the Docker Scout remediation release of Jackson Databind'
     Assert-Contains 'backend/pom.xml' '<log4j2\.version>2\.25\.5</log4j2\.version>' 'API uses the Docker Scout remediation release of Log4j'
+    Assert-Contains 'backend/Dockerfile' 'FROM --platform=\$BUILDPLATFORM \$\{MAVEN_BUILD_IMAGE\} AS build' 'API build stage executes under target-architecture emulation'
     Assert-Contains 'backend/Dockerfile' 'apk del --no-network coreutils' 'API runtime removes unnecessary vulnerable coreutils'
     Assert-Contains 'backend/Dockerfile' 'ENV APP_VERSION=\$\{APP_VERSION\}' 'API runtime does not expose its immutable build version'
     Assert-Contains 'compose.yaml' 'test:\s*\["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127\.0\.0\.1:8080/actuator/health"\]' 'API health check does not require curl or nghttp2'
@@ -32,6 +33,8 @@ try {
     Assert-Contains 'compose.yaml' 'APP_CODEX_GUIDANCE_ENABLED:\s*\$\{APP_CODEX_GUIDANCE_ENABLED:-true\}' 'source runtime does not explicitly retain Codex guidance'
     Assert-Contains 'frontend/package.json' 'vinext start --hostname 127\.0\.0\.1' 'Production portal defaults to loopback'
     Assert-Contains 'frontend/package.json' 'vinext dev --hostname 127\.0\.0\.1' 'Development portal defaults to loopback'
+    Assert-Contains 'frontend/Dockerfile' 'FROM --platform=\$BUILDPLATFORM \$\{NODE_BUILD_IMAGE\} AS build' 'portal build stage executes Node under target-architecture emulation'
+    Assert-Contains 'frontend/pnpm-workspace.yaml' 'supportedArchitectures:[\s\S]*?- arm64[\s\S]*?libc:[\s\S]*?- musl' 'portal cross-build does not retain supported ARM64 musl runtime packages'
     Assert-Contains 'AGENTS.md' 'guided-workflows/README\.md' 'Codex repository router is present'
     Assert-Contains 'guided-workflows/README.md' 'Help me on this page\.' 'Guided workflow entry prompt is documented'
 

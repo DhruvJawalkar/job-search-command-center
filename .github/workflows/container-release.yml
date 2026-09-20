@@ -381,6 +381,34 @@ jobs:
               egress-broker
           fi
 
+      - name: Smoke-test the portal runtime on its built architecture
+        if: matrix.component == 'portal'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          image="local/jscc-portal:$GITHUB_SHA-$ARCH"
+          container="jscc-portal-$ARCH-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          docker load --input "portal-$ARCH.tar"
+          docker run --detach --rm \
+            --platform "linux/$ARCH" \
+            --name "$container" \
+            --publish 127.0.0.1::3000 \
+            "$image"
+          trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
+          host_port="$(docker port "$container" 3000/tcp | sed -n 's/.*://p' | sed -n '1p')"
+          test -n "$host_port"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "http://127.0.0.1:$host_port/" > portal-smoke.html; then
+              grep -F 'Job Search Command Center' portal-smoke.html >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$container" >&2
+          exit 1
+
       - name: Report all known project-image vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

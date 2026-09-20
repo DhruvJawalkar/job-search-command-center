@@ -61,6 +61,8 @@ Assert-Match $workflow "tr '':upper:'' '':lower:''|tr '\[:upper:\]' '\[:lower:\]
 Assert-Match $workflow 'secrets\.DOCKERHUB_USERNAME' 'Docker Hub username environment secret is absent'
 Assert-Match $workflow 'secrets\.DOCKERHUB_TOKEN' 'Docker Hub token environment secret is absent'
 Assert-Match $workflow 'linux/amd64,linux/arm64' 'multi-architecture publication is absent'
+Assert-Match $workflow 'Smoke-test the portal runtime on its built architecture' 'pre-publication image gates do not execute the portal runtime on both supported architectures'
+Assert-Match $workflow 'docker run --detach --rm[\s\S]*?--platform "linux/\$ARCH"' 'portal architecture smoke test does not run the exact built platform'
 Assert-Match $workflow 'component:\s*\[api, portal, broker\]' 'API, portal, and egress broker are not independently handled'
 Assert-Match $workflow 'node --test test/\*\.test\.mjs' 'egress-broker tests are absent'
 Assert-Match $workflow 'provenance:\s*mode=max' 'maximum BuildKit provenance is absent'

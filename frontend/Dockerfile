@@ -1,7 +1,11 @@
 ARG NODE_BUILD_IMAGE=node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
 ARG NODE_RUNTIME_IMAGE=node:22.23.2-alpine3.24@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
 
-FROM ${NODE_BUILD_IMAGE} AS build
+# The portal build output is architecture-neutral JavaScript. Run dependency
+# installation and compilation on the native builder platform so arm64 release
+# builds do not execute Node through QEMU. pnpm-workspace.yaml installs both
+# supported Linux CPU variants for the production dependency tree copied below.
+FROM --platform=$BUILDPLATFORM ${NODE_BUILD_IMAGE} AS build
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

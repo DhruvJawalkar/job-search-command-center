@@ -11,6 +11,22 @@ overrides:
 
 confirmModulesPurge: false
 
+# Release builds compile on the native builder platform, while the final
+# runtime image may be linux/amd64 or linux/arm64. Retain the matching optional
+# binaries for both supported container architectures plus the developer's
+# current host architecture.
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - x64
+    - arm64
+  libc:
+    - current
+    - musl
+
 onlyBuiltDependencies:
   - esbuild
   - sharp

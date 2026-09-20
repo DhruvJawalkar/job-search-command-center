@@ -1,7 +1,9 @@
 ARG MAVEN_BUILD_IMAGE=maven:3.9.11-eclipse-temurin-21-alpine
 ARG TEMURIN_RUNTIME_IMAGE=eclipse-temurin:21-jre-alpine
 
-FROM ${MAVEN_BUILD_IMAGE} AS build
+# The Spring Boot artifact is architecture-neutral. Build it on the native
+# runner and reserve the requested target platform for the final JRE image.
+FROM --platform=$BUILDPLATFORM ${MAVEN_BUILD_IMAGE} AS build
 WORKDIR /workspace
 COPY pom.xml ./
 RUN mvn -q -DskipTests dependency:go-offline
