@@ -114,6 +114,8 @@ jobs:
           mkdir -p "$standalone_bundle/gateway"
           cp "$spaced_clone/.github/release/standalone/setup.sh" \
             "$spaced_clone/.github/release/standalone/jscc.sh" \
+            "$spaced_clone/.github/release/standalone/setup.ps1" \
+            "$spaced_clone/.github/release/standalone/jscc.ps1" \
             "$standalone_bundle/"
           printf '%s\n' 'services: {}' > "$standalone_bundle/compose.yaml"
           printf '%s\n' 'services: {}' > "$standalone_bundle/compose.connected.yaml"
