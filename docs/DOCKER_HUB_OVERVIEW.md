@@ -1,193 +1,99 @@
 # Job Search Command Center
 
-A local-first, single-user command center for discovering roles, preserving job
-evidence, tracking applications and referral paths, planning preparation, and
-reviewing progress.
+A local-first, single-user command center for turning job-search activity into an evidence-backed operating system: discover high-fit roles, preserve job evidence, manage applications and referral paths, plan preparation, and review progress.
+
+The application runs on your own Windows, macOS, or Linux workstation. It starts empty by default and offers an explicit synthetic-demo option.
 
 ## Release status
 
-`v1.0.0` is the planned first public container release. Component tags,
-immutable digests, the standalone archives, checksums, signatures, SBOMs,
-provenance, and scan evidence become supported release assets only after final
-acceptance. The planned standalone assets are:
+**v1.0.0 is awaiting final owner acceptance.** Treat the component tags, signatures, attestations, SBOMs, scan reports, and standalone archives as supported only when the accepted GitHub release is present. The installer will not fall back to an unaccepted mutable image.
 
-- `job-search-command-center-v1.0.0-standalone.zip` for Windows;
-- `job-search-command-center-v1.0.0-standalone.tar.gz` for macOS and Linux; and
-- `job-search-command-center-v1.0.0-standalone.SHA256SUMS` for verification.
+## What it helps you do
 
-If the
-[`v1.0.0` GitHub release](https://github.com/DhruvJawalkar/job-search-command-center/releases/tag/v1.0.0)
-does not show these accepted assets and the verification evidence, do not
-treat a visible Docker tag as an accepted installation.
+- import and rank daily high-fit openings;
+- preserve exact job and application evidence;
+- track application stages, interviews, and follow-ups;
+- find referral paths and manage outreach;
+- plan preparation tracks and skill-development sprints;
+- personalize priorities, schedules, recommendations, and weekly goals; and
+- choose how application-owned assistance context is retained.
 
-## Choose one package route
+## Three supported setup routes
 
-### 1. Docker-only standalone — recommended
+### 1. Docker-only archive
 
-Download the archive for your operating system and the `SHA256SUMS` file from
-the accepted GitHub release, verify the archive, and follow the
-[standalone Docker guide](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/STANDALONE_DOCKER.md).
+Download the verified Windows ZIP or macOS/Linux tar archive and SHA-256 checksum from the accepted [GitHub release](https://github.com/DhruvJawalkar/job-search-command-center/releases/tag/v1.0.0). Extract it and run setup.ps1 on Windows or setup.sh on macOS/Linux.
 
-This route requires Docker with Compose v2 only. It does not clone the
-repository and does not require Java, Maven, Node.js, pnpm, or PostgreSQL on the
-host. On Windows, expand the verified ZIP and run `./setup.ps1`. On macOS or
-Linux, extract the verified tar archive and run `./setup.sh`. The installer
-prompts for a private workspace and runtime mode, generates local database
-credentials, installs the controls under `<workspace>/.jscc`, pulls the
-accepted images by immutable digest, and starts the stack. The downloaded
-archive and extraction folder can then be removed; the workspace is the
-persistent installation.
+This route needs Docker with Compose v2 only—no Git clone, Codex, Java, Maven, Node.js, pnpm, or host PostgreSQL installation.
 
-### 2. Codex-assisted Docker runtime
+### 2. Codex-assisted runtime
 
-Clone the default `main` branch, add that folder as the primary folder of a
-local Codex project, and use its guided setup and page-aware workflow catalog:
+Clone the source-free default branch, add it as a local Codex project, and run its guided bootstrap:
 
-```bash
-git clone https://github.com/DhruvJawalkar/job-search-command-center.git
-cd job-search-command-center
-```
+    git clone --depth 1 --single-branch --branch main https://github.com/DhruvJawalkar/job-search-command-center.git
 
-Use this route when you want the same published Docker runtime together with
-`AGENTS.md`, the checked-in `guided-workflows/` catalog, samples, and Codex
-onboarding material. Codex assistance is optional and does not turn V1 into an
-autonomous application-submission or outreach agent.
+The branch contains product documentation, page-aware guided workflows, examples, trust boundaries, and lightweight setup context—not application source. After setup, open http://127.0.0.1:3000 beside the project chat and ask “Help me on this page.”
 
-See
-[Codex-assisted use](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md)
-and
-[installation](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/INSTALLATION.md).
+### 3. Full source
 
-### 3. Full source build
+Developers and reviewers can inspect, build, test, or modify every component from the public source branch:
 
-Developers who want to inspect, test, modify, and build every component should
-use the `source` branch:
+    git clone --branch source https://github.com/DhruvJawalkar/job-search-command-center.git
 
-```bash
-git clone --branch source https://github.com/DhruvJawalkar/job-search-command-center.git
-cd job-search-command-center
-```
+## Inputs setup requests
 
-The source branch contains the Spring Boot API, React/TypeScript portal,
-connected-mode egress broker, Dockerfiles, tests, and release tooling. Review
-the source branch's README and development guide before building. The license
-remains non-commercial; source availability is not permission for commercial
-use.
+- a private local workspace folder;
+- empty or clearly synthetic demo mode;
+- optional non-default portal/API ports; and
+- Docker running with Compose v2.
 
-## This is a multi-container application
+The workspace holds the generated local secret, PostgreSQL data, resumes, preserved job descriptions, notes, workbooks, contact imports, preparation files, and backups. Runtime controls are installed under workspace/.jscc and remain separate from the replaceable download or repository clone.
 
-The tags in this Docker Hub repository are independently addressable release
-components:
+## Multi-container and multi-architecture images
 
-```text
-dhruvjawalkar/job-search-command-center:api-v1.0.0
-dhruvjawalkar/job-search-command-center:portal-v1.0.0
-dhruvjawalkar/job-search-command-center:broker-v1.0.0
-```
+This is not a supported single-container docker run application. The accepted, digest-pinned Compose bundle keeps the gateway, portal, API, PostgreSQL, optional connected broker, networks, mounts, and health checks compatible.
 
-These names are shown for the planned release and become supported only after
-acceptance. A `docker pull` downloads one component; it does not install the
-application. Do not run the API, portal, or broker alone and do not assemble a
-stack from mutable tags. The supported installation uses the accepted Compose
-bundle, which also pins compatible PostgreSQL and Nginx images and supplies
-the required network, mount, health-check, and gateway configuration.
+Project images are built for both **linux/amd64** (common Intel/AMD computers) and **linux/arm64** (including Apple Silicon and ARM Linux devices). Docker selects the compatible platform image automatically.
 
-The project images support:
+Planned component tags are:
 
-- `linux/amd64`
-- `linux/arm64`
+    dhruvjawalkar/job-search-command-center:api-v1.0.0
+    dhruvjawalkar/job-search-command-center:portal-v1.0.0
+    dhruvjawalkar/job-search-command-center:broker-v1.0.0
 
-## Local workspace and persistence
+Pulling one component does not install the application. Use an accepted release bundle rather than assembling a stack from tags.
 
-Application data is not stored in the replaceable release bundle. Setup asks
-for a private local workspace, installs versioned control files under
-`<workspace>/.jscc`, and persists:
+## Local security architecture
 
-- PostgreSQL data;
-- resumes and preserved job descriptions;
-- notes;
-- daily high-fit workbooks and action files;
-- LinkedIn connection imports;
-- preparation and company-target files;
-- local configuration and generated secrets; and
-- private backups.
+V1 is an unauthenticated application for one trusted user on one local workstation. Only a hardened, fixed-route gateway binds to 127.0.0.1. The portal, API, and PostgreSQL have no direct host ports and use an internal Docker network with no ordinary outbound route.
 
-Use `<workspace>/.jscc/jscc.ps1` on Windows or
-`<workspace>/.jscc/jscc.sh` on macOS and Linux for the supported lifecycle
-commands: `start`, `stop`, `restart`, `status`, `logs`, and `pull`. The `pull`
-command retrieves the exact digests configured for the installed release; it
-does not upgrade the installation to a different release.
+Optional application-owned OpenAI assistance and live public job-page retrieval use a separate authenticated egress broker. They require policy opt-in plus a one-time confirmation showing the destination, purpose, and outbound data preview. The broker has no host port, database access, or workspace mount.
 
-Keep that workspace out of Git and unencrypted cloud sharing. Stop/start,
-container recreation, and application-image updates preserve the bind-mounted
-workspace when the same path is used. Back up the complete stopped workspace
-before an upgrade. Database migrations can make an older application image
-unsafe against a newer live database, so retain a pre-upgrade backup rather
-than assuming image rollback alone is sufficient.
+Do not expose V1 through a LAN bind, tunnel, reverse proxy, port-forward, shared host, or public deployment.
 
-## Local-only security boundary
+## Verifiable release evidence
 
-V1 is an unauthenticated application for one trusted user on one local
-workstation. The accepted Compose topology publishes only a hardened,
-fixed-route gateway on `127.0.0.1`; the portal, API, and PostgreSQL have no
-direct host ports and use an internal network with no ordinary outbound route.
+An accepted release binds exact source, image, and Compose identities through:
 
-Do not expose V1 through a LAN bind, tunnel, reverse proxy, port-forward,
-shared host, or public deployment. CORS is not authentication. The host
-browser, Codex, Docker Desktop or Engine, the operating system, and other local
-processes remain separate trust boundaries.
+- immutable image and platform digests;
+- Trivy and Docker Scout vulnerability reports;
+- CodeQL and dependency/secret/configuration checks;
+- keyless Cosign signatures;
+- GitHub and BuildKit provenance attestations;
+- SPDX SBOM attestations;
+- digest-pinned Compose files and SHA-256 checksums; and
+- empty/demo runtime acceptance across 34 database migrations.
 
-Optional application-owned OpenAI assistance and live public-page retrieval
-use a separate reviewed connected overlay with a narrow authenticated broker,
-policy opt-in, and one-time confirmation of each destination, purpose, and
-payload preview. Codex use does not require that overlay.
+These controls provide inspectable evidence for exact artifacts; they are not a claim that software is universally vulnerability-free or that data can never leave a computer.
 
-Read the full
-[security policy](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/SECURITY.md),
-[privacy notice](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/PRIVACY.md),
-and
-[threat model](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/THREAT_MODEL.md)
-before adding real personal or third-party data.
+## Configurable privacy and personalization
 
-## Release verification and evidence
+At first run, users choose Stateless, Session-only, or Time-bound application-owned assistance context. Time-bound retention can be configured for 7, 30, or 90 days. Saved records remain a separate, deliberate retention category. Profile and Summary controls configure role targets, exclusions, schedule, recommendations, priorities, and weekly goals locally.
 
-An accepted release publishes exact image-index and platform digests, keyless
-signatures, GitHub/BuildKit provenance, SPDX SBOM attestations, vulnerability
-scan reports, a digest-pinned Compose bundle, and checksums. The release
-manifest binds those artifacts to the exact source commit and source tag.
+Application privacy settings do not control Codex task history, the host browser, Docker, the operating system, or provider-side retention. Keep the workspace out of Git and unencrypted cloud sharing.
 
-Evidence becomes authoritative only when the accepted GitHub release exposes
-the manifest and verification material. Source workflow files, a successful
-local build, or a Docker Hub tag by itself is not release evidence. Follow
-[container release verification](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CONTAINER_RELEASE.md)
-for the exact Cosign, GitHub attestation, digest, SBOM, and checksum checks.
-Signatures and scans establish specific properties of exact artifacts; they do
-not prove that software is vulnerability-free or that data can never leave a
-computer.
+Read the project [Privacy notice](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/PRIVACY.md), [Security policy](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/SECURITY.md), and [Threat model](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/THREAT_MODEL.md) before adding real personal or third-party data.
 
-## Licensing and project identity
+## License and project identity
 
-Job Search Command Center is source-available for non-commercial use under the
-[PolyForm Noncommercial License 1.0.0](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/LICENSE).
-Copyright © 2026 Dhruv Jawalkar.
-
-Pulling an image does not grant commercial-use rights. Redistributors and
-modifiers must preserve the license, required creator notice, and attribution;
-modified distributions must not imply that they are official or endorsed.
-Commercial use requires a separate written agreement. See the
-[required notice](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/NOTICE),
-[branding terms](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/TRADEMARKS.md),
-and
-[commercial licensing](https://github.com/DhruvJawalkar/job-search-command-center/blob/main/COMMERCIAL-LICENSE.md).
-
-## About Docker Hub pull counts
-
-Docker Hub pull totals are useful as a directional repository-usage signal,
-not as a count of people or successful installations. Pulls may include CI,
-release verification, vulnerability scanning, updates, repeated downloads, and
-multi-platform manifest or image retrieval. The repository total also combines
-the API, portal, and broker tags. It cannot reliably distinguish unique users,
-package routes, component usage, or completed local setups.
-
-Use pull totals for broad trend tracking and pair them with release-download,
-support, and feedback signals when evaluating adoption.
+Source-available for non-commercial use under the PolyForm Noncommercial License 1.0.0. Copyright © 2026 Dhruv Jawalkar. Attribution and the required creator notice must remain; modified distributions must not claim to be official or endorsed. Commercial use requires a separate written agreement.
