@@ -19,7 +19,9 @@ LABEL org.opencontainers.image.title="Job Search Command Center API" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0" \
       dev.dhruv.job-search-command-center.license-url="https://polyformproject.org/licenses/noncommercial/1.0.0" \
       dev.dhruv.job-search-command-center.required-notice="Required Notice: Copyright © 2026 Dhruv Jawalkar. Job Search Command Center was created and is maintained by Dhruv Jawalkar."
-RUN apk add --no-cache curl && addgroup -S app && adduser -S app -G app
+RUN apk del --no-network coreutils \
+    && addgroup -S app \
+    && adduser -S app -G app
 WORKDIR /app
 COPY --from=build /tmp/job-search-command-center.jar /app/job-search-command-center.jar
 USER app

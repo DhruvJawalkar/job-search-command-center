@@ -56,7 +56,7 @@ services:
     networks:
       - local_only
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:8080/actuator/health"]
       interval: 5s
       timeout: 3s
       retries: 30

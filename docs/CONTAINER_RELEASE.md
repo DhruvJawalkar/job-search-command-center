@@ -68,7 +68,7 @@ After explicit approval, the workflow:
 
 - rebuilds each project image from the same digest-pinned base inputs;
 - publishes a multi-architecture manifest with BuildKit SPDX SBOM and `mode=max` provenance attestations;
-- re-scans each exact published platform digest with Trivy and runs an independent Docker Scout fixable high/critical gate;
+- re-scans each exact published platform digest with Trivy and requires Docker Scout to report zero known project-image vulnerabilities at every severity, including unspecified findings;
 - signs each project image index with Sigstore keyless signing tied to the GitHub workflow identity;
 - creates GitHub-signed build provenance and platform-specific SPDX SBOM attestations;
 - emits JSON evidence with the tag, source commit, index digest, platform digests, and upstream runtime digests;
@@ -78,7 +78,7 @@ After explicit approval, the workflow:
 - packages and signs a GitHub attestation for the verified Compose bundle; and
 - preserves the bundle, archive, and checksums only after both runtime smoke tests pass.
 
-Any known fixable critical or high vulnerability in a project image blocks the workflow. For the unmodified Docker Official Nginx and PostgreSQL dependencies, the workflow preserves the full all-package high/critical report, hard-gates every fixable operating-system package finding, and rejects unexpected fixable library findings. Unfixed findings remain in the report and require release-owner review. An exception must document applicability and remediation; do not add an ignore rule or VEX statement solely to make a gate pass. CodeQL findings also require review because successful analysis execution is not, by itself, proof that the result set is empty.
+Any known project-image vulnerability reported by either Trivy or Docker Scout blocks the workflow, regardless of severity or whether an upstream fix is currently available. The pre-publication Trivy gate runs before registry login, while both scanners independently inspect the exact published content; the workflow also preserves detailed reports and SBOMs. For the unmodified Docker Official Nginx and PostgreSQL dependencies, the workflow preserves the full all-package high/critical report, hard-gates every fixable operating-system package finding, and rejects unexpected fixable library findings. Unfixed upstream findings remain in the report and require release-owner review. An exception must document applicability and remediation; do not add an ignore rule or VEX statement solely to make a gate pass. CodeQL findings also require review because successful analysis execution is not, by itself, proof that the result set is empty.
 
 ### Reviewed PostgreSQL `gosu` exception
 

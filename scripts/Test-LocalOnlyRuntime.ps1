@@ -143,8 +143,8 @@ try {
 
         & docker exec $ids.api getent hosts example.com *> $null
         Add-Check 'API external DNS lookup is blocked' ($LASTEXITCODE -ne 0) 'getent hosts example.com failed as expected'
-        & docker exec $ids.api curl --fail --silent --show-error --connect-timeout 5 https://example.com *> $null
-        Add-Check 'API outbound HTTPS is blocked' ($LASTEXITCODE -ne 0) 'curl https://example.com failed as expected'
+        & docker exec $ids.api wget --quiet --spider --timeout=5 https://example.com *> $null
+        Add-Check 'API outbound HTTPS is blocked' ($LASTEXITCODE -ne 0) 'wget https://example.com failed as expected'
 
         $dnsProbe = "require('node:dns').promises.lookup('example.com').then(()=>process.exit(0)).catch(()=>process.exit(23))"
         & docker exec $ids.portal node -e $dnsProbe *> $null
