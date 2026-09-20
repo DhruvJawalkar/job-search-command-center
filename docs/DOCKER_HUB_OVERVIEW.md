@@ -6,7 +6,7 @@ The application runs on your own Windows, macOS, or Linux workstation. It starts
 
 ## Release status
 
-**v1.0.0 is awaiting final owner acceptance.** Treat the component tags, signatures, attestations, SBOMs, scan reports, and standalone archives as supported only when the accepted GitHub release is present. The installer will not fall back to an unaccepted mutable image.
+**v1.0.0 is the accepted public release.** Its component tags, signatures, attestations, SBOMs, scan reports, and standalone archives were published from source commit `3a3a3d4` through the protected release workflow. The installer accepts only this immutable release and will not fall back to mutable images.
 
 ## What it helps you do
 
@@ -55,7 +55,7 @@ This is not a supported single-container docker run application. The accepted, d
 
 Project images are built for both **linux/amd64** (common Intel/AMD computers) and **linux/arm64** (including Apple Silicon and ARM Linux devices). Docker selects the compatible platform image automatically.
 
-Planned component tags are:
+Published component tags are:
 
     dhruvjawalkar/job-search-command-center:api-v1.0.0
     dhruvjawalkar/job-search-command-center:portal-v1.0.0
