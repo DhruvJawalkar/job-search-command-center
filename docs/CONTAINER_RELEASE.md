@@ -11,7 +11,7 @@ The project does not rebuild, rebrand, or sign Nginx or PostgreSQL. The workflow
 
 ## Current status
 
-The workflow and local structural check are release preparation and do not, by their presence alone, establish release evidence. Protected run `35441939677` published and signed three `v1.0.0` candidate image indexes, but the API image was subsequently rejected after Docker Scout exposed known medium, low, and unspecified findings that the original high/critical-only policy did not block. Those images and their source tag are not an accepted release and must be removed before the version is reused. The API dependency/runtime remediation and zero-known-vulnerability gates are now in place; a fresh tag-bound protected publication remains required.
+The workflow and local structural check are release preparation and do not, by their presence alone, establish release evidence. Protected run `35441939677` published and signed three `v1.0.0` candidate image indexes, but the API image was subsequently rejected after Docker Scout exposed known medium, low, and unspecified findings that the original high/critical-only policy did not block. Those three Docker Hub tags and their GitHub source tag have been removed. The API dependency/runtime remediation and zero-known-vulnerability gates are now in place; a fresh tag-bound protected publication remains required before `v1.0.0` is an accepted release.
 
 ## Source-available license
 
@@ -46,16 +46,6 @@ Protect release tags and require the source/test, CodeQL, image, runtime-depende
 1. A manual dispatch from a branch with `release_tag` blank and `publish` left at its default `false`. This builds and scans the exact commit using a `validation-<commit>` version label, creates pre-publication SBOM evidence, and cannot enter the registry-login or publish job. An optional existing tag may be supplied for a tag-specific validation run.
 2. An exact version-tag push. This performs tag-specific validation but deliberately does not request publication.
 3. A separate manual dispatch with `publish: true` selected from the exact existing version tag ref. Publication without an existing `vMAJOR.MINOR.PATCH` tag is rejected. A branch-dispatched publication is also rejected, even when the commit carries the tag, so the keyless signature identity remains tag-bound. All validation jobs still run first. The `container-release` environment then pauses for manual approval before registry credentials are exposed.
-
-### Recovering an already-published candidate without moving its source tag
-
-`Recover protected container release` exists only for the narrow case where the immutable candidate images, exact-digest scans, signatures, and attestations succeeded but a later evidence or bundle step failed. It does not build, sign, push, or replace an image.
-
-Recovery never overrides the current vulnerability policy. It repeats the all-severity, fixed-or-unfixed Trivy and Docker Scout gates and therefore cannot rescue a candidate that contains any known project-image vulnerability.
-
-Dispatch it from `main` with the immutable `release_tag` and the failed protected publication `source_run_id`. The workflow checks out that tag, proves that the selected failed run used the same tag and source commit, downloads its original `resolved-release-inputs` artifact, and resolves the existing component tags. Behind the same `container-release` approval boundary, it then verifies OCI source labels, repeats the two-platform Trivy and Docker Scout gates, verifies the original tag-bound Cosign identities, and authenticates `gh attestation verify` with the short-lived workflow token. Only then does it create component records and run the empty/local-only and demo/connected acceptance stacks against digest-pinned images.
-
-The project-image signatures and OCI attestations remain bound to the original `container-release.yml@refs/tags/<tag>` identity. The final recovered bundle attestation is transparently bound to `recover-container-release.yml@refs/heads/main`, because the recovery workflow was added after the immutable source tag; its manifest separately records the immutable source commit and original publication run ID. Never weaken tag protection or move a public release tag merely to place a workflow fix behind it.
 
 Before approval, the workflow:
 

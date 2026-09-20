@@ -255,7 +255,8 @@ type LocalProfile = { displayName: string | null; targetRoles: string | null; ta
   preferredCompanySizes: string | null; previousEmployers: string | null; careerGoals: string | null;
   cultureValues: string | null; includedTechnologies: string | null; excludedTechnologies: string | null;
   dailySearchTime: string | null; timeZone: string | null; onboardingCompleted: boolean; updatedAt: string | null; version: number };
-type InstallationStatus = { mode: string; demoMode: boolean; version: string };
+type InstallationStatus = { mode: string; demoMode: boolean; version: string;
+  distributionChannel: string; codexGuidanceEnabled: boolean };
 type AssistanceContextMode = "STATELESS" | "SESSION_ONLY" | "TIME_BOUND";
 type PrivacyPolicy = {
   revision: number;
@@ -388,7 +389,8 @@ const emptyProfile: LocalProfile = { displayName: null, targetRoles: null, targe
   careerGoals: null, cultureValues: null, includedTechnologies: null, excludedTechnologies: null,
   dailySearchTime: "08:00", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, onboardingCompleted: false,
   updatedAt: null, version: 0 };
-const defaultInstallation: InstallationStatus = { mode: "PERSONAL", demoMode: false, version: "1.0.0" };
+const defaultInstallation: InstallationStatus = { mode: "PERSONAL", demoMode: false, version: "1.0.0",
+  distributionChannel: "source", codexGuidanceEnabled: true };
 const defaultPrivacyPolicy: PrivacyPolicy = {
   revision: 0, assistanceContextMode: "STATELESS", derivedContextRetentionDays: null,
   transientIngestionRetentionDays: 7,
@@ -1404,7 +1406,7 @@ export default function Home() {
                 <a href={technologyWatch.href} target="_blank" rel="noreferrer">Review {technologyWatch.source} ↗</a></div>}
             </aside>
           </section>
-          <CodexWorkflowHint />
+          <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
 
           {!connected && !loading && <div className="preview-banner" role="status"><strong>Showing representative data.</strong> Start the local database and API to use live persistence.</div>}
 
@@ -1493,7 +1495,7 @@ export default function Home() {
           {activeWorkspace === "opportunities" && <div className="workspace-page opportunity-page" id="opportunities">
           <WorkspaceIntro eyebrow="Opportunity portfolio" title="High-fit openings and intake review"
             description="Prioritize researched roles first, then process new sources into the same trusted opportunity record." />
-          <CodexWorkflowHint />
+          <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
           <section className="panel generic-inbox-panel" id="inbox">
             <PanelHeader eyebrow="Assisted, review-first ingestion" title="Inbox review" count={inboxReviewCount}
               action={<div className="inbox-header-actions"><button className="secondary-button" disabled={!connected || duplicateScanBusy}
@@ -1604,7 +1606,7 @@ export default function Home() {
           {activeWorkspace === "outreach" && <div className="workspace-page outreach-page" id="outreach">
           <WorkspaceIntro eyebrow="Relationship-led execution" title="Referrals and outreach"
             description="Work the most urgent follow-ups first, then discover and qualify new referral paths for a selected opening." />
-          <CodexWorkflowHint />
+          <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
           <section className={`panel referral-panel${hasOutreachActivity ? "" : " referral-only"}`} id="referrals">
             {hasOutreachActivity && <><PanelHeader eyebrow="Network execution" title="Referrals & outreach"
               action={<div className="feed-meta"><strong>{activeOutreach.length}</strong><span>active · {dueOutreach} due</span></div>} />
@@ -1756,7 +1758,7 @@ export default function Home() {
           {activeWorkspace === "skills" && <div className="workspace-page skills-page" id="skills">
           <WorkspaceIntro eyebrow="Evidence to capability" title="Market demand and personal skill strategy"
             description="Review trusted job evidence, maintain the canonical catalog, and keep the personal backlog ordered by real demand." />
-          <CodexWorkflowHint />
+          <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
           <section className="panel skill-evidence-panel">
             <PanelHeader eyebrow="Cohort-filtered signals" title="Market skill evidence"
               count={skillOverview.proposedCount}
@@ -1892,7 +1894,7 @@ export default function Home() {
           {activeWorkspace === "preparation" && <div className="workspace-page preparation-page" id="preparation">
           <WorkspaceIntro eyebrow="Delivery workspace" title="Preparation portfolio"
             description="Plan a two-week sprint across active tracks, then drill into one track’s stories, tasks, evidence, and schedule." />
-          <CodexWorkflowHint />
+          <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
           <section className="panel preparation-panel">
             <PanelHeader eyebrow={activePrepTrack ? `${formatEnum(activePrepTrack.category)} track dashboard` : "Bi-weekly delivery system"}
               title={activePrepTrack?.name ?? "Preparation workspace"}
@@ -1935,7 +1937,7 @@ export default function Home() {
           {activeWorkspace === "reviews" && <div className="workspace-page reviews-page" id="reviews">
           <WorkspaceIntro eyebrow="Operating cadence" title="Weekly review and accountability"
             description="Separate live signals from frozen history, understand funnel health, and record the adjustments for the next week." />
-          <CodexWorkflowHint />
+          <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
           <section className="panel weekly-review-panel">
             <PanelHeader eyebrow="Immutable weekly intelligence" title="Weekly review"
               action={<div className="weekly-header-actions">{selectedWeeklyReview && <button className="assist-button"
@@ -2007,7 +2009,7 @@ export default function Home() {
           {activeWorkspace === "settings" && <div className="workspace-page settings-page" id="settings">
             <WorkspaceIntro eyebrow="Local personalization" title="Profile, privacy, and search preferences"
               description="Control local personalization, assistant-derived context, and the role targets and preferences kept in your own database." />
-            <CodexWorkflowHint />
+            <CodexWorkflowHint enabled={installation.codexGuidanceEnabled} />
             <div className="settings-accordion" aria-label="Profile settings sections">
               <SettingsAccordionSection sectionId="profile" title="Personal profile" summary="Role targets, preferences, and local personalization"
                 open={openSettingsSection === "profile"} onOpen={() => setOpenSettingsSection("profile")}>
@@ -2029,7 +2031,7 @@ export default function Home() {
                 open={openSettingsSection === "cadence"} onOpen={() => setOpenSettingsSection("cadence")}>
                 <section className="panel automation-proposal"><PanelHeader eyebrow="Suggested operating cadence" title="Daily high-fit opening discovery" />
                   <p>Start with a daily 8:00 AM local-time search that writes a reviewed workbook into <code>daily-high-fit-job-roles</code>. Keep collection separate from application or outreach actions.</p>
-                  <div><a className="secondary-button" href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md" target="_blank" rel="noreferrer">Open Codex workflow guide ↗</a>
+                  <div>{installation.codexGuidanceEnabled && <a className="secondary-button" href="https://github.com/DhruvJawalkar/job-search-command-center/blob/main/docs/CODEX_ONBOARDING.md" target="_blank" rel="noreferrer">Open Codex workflow guide ↗</a>}
                     <a className="text-button" href="#opportunities">Review imported openings</a></div></section>
               </SettingsAccordionSection>
             </div>
@@ -2518,7 +2520,8 @@ function SettingsAccordionSection({ sectionId, title, summary, open, onOpen, chi
     <div id={panelId} className="settings-accordion-panel" role="region" aria-labelledby={buttonId} hidden={!open}>{children}</div>
   </section>;
 }
-function CodexWorkflowHint() {
+function CodexWorkflowHint({ enabled }: { enabled: boolean }) {
+  if (!enabled) return null;
   return <aside className="codex-workflow-hint" aria-label="Codex guided workflow help">
     <span aria-hidden="true">✦</span><p><strong>Need a hand here?</strong> In your Codex project chat, say: <q>Help me on this page.</q></p>
   </aside>;

@@ -803,7 +803,9 @@ jobs:
     needs: [preflight, publish]
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Check out release templates
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -854,7 +856,16 @@ jobs:
             .github/release/compose.connected.release.yaml.tmpl > release-bundle/compose.connected.yaml
           cp gateway/nginx.conf release-bundle/gateway/nginx.conf
           cp docs/CONNECTED_RUNTIME.md release-bundle/CONNECTED_RUNTIME.md
+          cp docs/STANDALONE_DOCKER.md release-bundle/README.md
+          cp .github/release/standalone/setup.ps1 .github/release/standalone/setup.sh release-bundle/
+          cp .github/release/standalone/jscc.ps1 .github/release/standalone/jscc.sh release-bundle/
           cp LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md release-bundle/
+          printf '%s\n' "$RELEASE_TAG" > release-bundle/VERSION
+          chmod 0755 release-bundle/setup.sh release-bundle/jscc.sh
+
+          sh -n release-bundle/setup.sh
+          sh -n release-bundle/jscc.sh
+          pwsh -NoProfile -Command '[void][scriptblock]::Create((Get-Content -LiteralPath "release-bundle/setup.ps1" -Raw)); [void][scriptblock]::Create((Get-Content -LiteralPath "release-bundle/jscc.ps1" -Raw))'
 
           if grep -q '__[A-Z_]*__' release-bundle/compose.yaml; then
             echo 'Unresolved release template placeholder.' >&2
@@ -900,7 +911,7 @@ jobs:
             --arg database "$POSTGRES_IMAGE" \
             '{tag:$tag,sourceCommit:$sourceCommit,images:{api:$api,portal:$portal,broker:$broker,gateway:$gateway,database:$database}}' \
             > release-bundle/release-manifest.json
-          (cd release-bundle && sha256sum compose.yaml compose.connected.yaml gateway/nginx.conf CONNECTED_RUNTIME.md release-manifest.json LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md > SHA256SUMS)
+          (cd release-bundle && sha256sum compose.yaml compose.connected.yaml gateway/nginx.conf README.md CONNECTED_RUNTIME.md release-manifest.json VERSION setup.ps1 setup.sh jscc.ps1 jscc.sh LICENSE NOTICE TRADEMARKS.md COMMERCIAL-LICENSE.md > SHA256SUMS)
 
       - name: Smoke-test the exact published release images
         shell: bash
@@ -909,6 +920,9 @@ jobs:
           export POSTGRES_PASSWORD='release-smoke-password'
           export CONNECTED_BROKER_TOKEN='release-smoke-token-at-least-32-characters'
           export OPENAI_API_KEY=''
+          export APP_VERSION="${{ needs.preflight.outputs.release_version }}"
+          export APP_DISTRIBUTION_CHANNEL=standalone
+          export APP_CODEX_GUIDANCE_ENABLED=false
           APP_UID="$(id -u)"
           APP_GID="$(id -g)"
           export APP_UID APP_GID
@@ -981,7 +995,8 @@ jobs:
               exit 1
             }
             curl --fail --silent --show-error "http://127.0.0.1:$api_port/api/v1/installation" \
-              | jq -e --argjson demo "$demo" '.demoMode == $demo' >/dev/null
+              | jq -e --argjson demo "$demo" \
+                '.demoMode == $demo and .distributionChannel == "standalone" and .codexGuidanceEnabled == false' >/dev/null
           }
 
           verify_stack jscc-release-empty "$empty_root" false 18080 13000 false 0 0
@@ -993,7 +1008,8 @@ jobs:
           RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
         run: |
           set -euo pipefail
-          archive="job-search-command-center-$RELEASE_TAG-compose-bundle.tar.gz"
+          archive="job-search-command-center-$RELEASE_TAG-standalone.tar.gz"
+          zip_archive="job-search-command-center-$RELEASE_TAG-standalone.zip"
           source_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
           tar \
             --sort=name \
@@ -1006,15 +1022,41 @@ jobs:
             --file "$archive" \
             --directory release-bundle \
             .
-          sha256sum "$archive" > "$archive.sha256"
+          (cd release-bundle && zip -X -q -r "../$zip_archive" .)
+          sha256sum "$archive" "$zip_archive" > "job-search-command-center-$RELEASE_TAG-standalone.SHA256SUMS"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "zip_archive=$zip_archive" >> "$GITHUB_OUTPUT"
+          echo "checksums=job-search-command-center-$RELEASE_TAG-standalone.SHA256SUMS" >> "$GITHUB_OUTPUT"
         id: bundle
 
       - name: Attest the verified release bundle
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
-          subject-path: ${{ steps.bundle.outputs.archive }}
-          create-storage-record: false
+          subject-path: |
+            ${{ steps.bundle.outputs.archive }}
+            ${{ steps.bundle.outputs.zip_archive }}
+          create-storage-record: true
+
+      - name: Publish durable standalone assets on the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          ARCHIVE: ${{ steps.bundle.outputs.archive }}
+          ZIP_ARCHIVE: ${{ steps.bundle.outputs.zip_archive }}
+          CHECKSUMS: ${{ steps.bundle.outputs.checksums }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A GitHub Release already exists for $RELEASE_TAG; refusing to replace immutable assets." >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Job Search Command Center $RELEASE_TAG" \
+            --notes "Source-available V1 release with signed multi-architecture images, provenance, SBOM attestations, and a digest-pinned standalone Docker bundle. See README.md inside the bundle before adding personal data." \
+            "$ARCHIVE" "$ZIP_ARCHIVE" "$CHECKSUMS"
 
       - name: Preserve the digest-pinned Compose release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1023,6 +1065,7 @@ jobs:
           path: |
             release-bundle
             ${{ steps.bundle.outputs.archive }}
-            ${{ steps.bundle.outputs.archive }}.sha256
+            ${{ steps.bundle.outputs.zip_archive }}
+            ${{ steps.bundle.outputs.checksums }}
           if-no-files-found: error
           retention-days: 90

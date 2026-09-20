@@ -69,6 +69,9 @@ if (Test-Path -LiteralPath $envFile) {
         "POSTGRES_PASSWORD=$password"
         "APP_SEED_DEMO=$demoValue"
         "APP_DEMO_MODE=$demoValue"
+        'APP_VERSION=1.0.0'
+        'APP_DISTRIBUTION_CHANNEL=source'
+        'APP_CODEX_GUIDANCE_ENABLED=true'
     ) | Set-Content -LiteralPath $envFile -Encoding utf8NoBOM
 }
 

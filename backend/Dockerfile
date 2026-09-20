@@ -12,6 +12,7 @@ FROM ${TEMURIN_RUNTIME_IMAGE}
 ARG APP_VERSION=dev
 ARG VCS_REF=unknown
 ARG SOURCE_URL=https://github.com/DhruvJawalkar/job-search-command-center
+ENV APP_VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.title="Job Search Command Center API" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \

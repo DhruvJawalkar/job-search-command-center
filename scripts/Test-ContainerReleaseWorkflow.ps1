@@ -3,9 +3,9 @@ $ErrorActionPreference = 'Stop'
 
 $workspace = Split-Path $PSScriptRoot -Parent
 $workflowPath = Join-Path $workspace '.github/workflows/container-release.yml'
-$recoveryWorkflowPath = Join-Path $workspace '.github/workflows/recover-container-release.yml'
 $releaseTemplatePath = Join-Path $workspace '.github/release/compose.release.yaml.tmpl'
 $connectedReleaseTemplatePath = Join-Path $workspace '.github/release/compose.connected.release.yaml.tmpl'
+$standaloneReleasePath = Join-Path $workspace '.github/release/standalone'
 $documentationPath = Join-Path $workspace 'docs/CONTAINER_RELEASE.md'
 
 function Assert-Match([string]$Content, [string]$Pattern, [string]$Description) {
@@ -23,9 +23,6 @@ function Assert-NotMatch([string]$Content, [string]$Pattern, [string]$Descriptio
 if (!(Test-Path -LiteralPath $workflowPath -PathType Leaf)) {
     throw "Missing workflow: $workflowPath"
 }
-if (!(Test-Path -LiteralPath $recoveryWorkflowPath -PathType Leaf)) {
-    throw "Missing protected release recovery workflow: $recoveryWorkflowPath"
-}
 if (!(Test-Path -LiteralPath $documentationPath -PathType Leaf)) {
     throw "Missing release guidance: $documentationPath"
 }
@@ -35,9 +32,13 @@ if (!(Test-Path -LiteralPath $releaseTemplatePath -PathType Leaf)) {
 if (!(Test-Path -LiteralPath $connectedReleaseTemplatePath -PathType Leaf)) {
     throw "Missing digest-pinned connected Compose release template: $connectedReleaseTemplatePath"
 }
+foreach ($file in @('setup.ps1','setup.sh','jscc.ps1','jscc.sh')) {
+    if (!(Test-Path -LiteralPath (Join-Path $standaloneReleasePath $file) -PathType Leaf)) {
+        throw "Missing standalone release helper: $file"
+    }
+}
 
 $workflow = Get-Content -LiteralPath $workflowPath -Raw
-$recoveryWorkflow = Get-Content -LiteralPath $recoveryWorkflowPath -Raw
 $releaseTemplate = Get-Content -LiteralPath $releaseTemplatePath -Raw
 $connectedReleaseTemplate = Get-Content -LiteralPath $connectedReleaseTemplatePath -Raw
 $documentation = Get-Content -LiteralPath $documentationPath -Raw
@@ -97,36 +98,13 @@ Assert-Match $workflow 'verify_stack jscc-release-empty.*false 0 0' 'empty-mode 
 Assert-Match $workflow 'verify_stack jscc-release-demo.*true 1 3' 'demo connected-mode published-image smoke test is absent'
 Assert-Match $workflow 'Expected 34 successful migrations' 'published-image smoke test does not verify the complete schema'
 Assert-Match $workflow 'Attest the verified release bundle' 'the verified Compose bundle is not attested'
-Assert-Match $workflow 'job-search-command-center-\$RELEASE_TAG-compose-bundle\.tar\.gz' 'the verified Compose bundle is not packaged with a versioned name'
-Assert-Match $workflow 'sha256sum compose\.yaml compose\.connected\.yaml gateway/nginx\.conf CONNECTED_RUNTIME\.md release-manifest\.json' 'connected override or connected-runtime guidance is missing from release checksums'
+Assert-Match $workflow 'job-search-command-center-\$RELEASE_TAG-standalone\.tar\.gz' 'the verified standalone tar bundle is not packaged with a versioned name'
+Assert-Match $workflow 'job-search-command-center-\$RELEASE_TAG-standalone\.zip' 'the verified standalone Windows bundle is not packaged with a versioned name'
+Assert-Match $workflow 'sha256sum compose\.yaml compose\.connected\.yaml gateway/nginx\.conf README\.md CONNECTED_RUNTIME\.md release-manifest\.json VERSION setup\.ps1 setup\.sh jscc\.ps1 jscc\.sh' 'standalone runtime files are missing from release checksums'
+Assert-Match $workflow 'gh release create "\$RELEASE_TAG"[\s\S]*?--verify-tag' 'durable GitHub Release publication is missing or is not tag-bound'
+Assert-Match $workflow 'A GitHub Release already exists for \$RELEASE_TAG; refusing to replace immutable assets' 'release publication does not reject asset replacement'
+Assert-Match $workflow 'APP_DISTRIBUTION_CHANNEL=standalone[\s\S]*?APP_CODEX_GUIDANCE_ENABLED=false' 'standalone runtime capability smoke test is missing'
 Assert-Match $workflow 'actions/download-artifact@[0-9a-f]{40}' 'release evidence download is absent or unpinned'
-
-Assert-Match $recoveryWorkflow '(?ms)^on:\s*workflow_dispatch:' 'release recovery must be manually dispatched'
-Assert-Match $recoveryWorkflow '(?m)^\s+environment:\s+container-release\s*$' 'release recovery verification is not protected by the release environment'
-Assert-Match $recoveryWorkflow 'ref:\s*refs/tags/\$\{\{ inputs\.release_tag \}\}' 'release recovery does not check out the requested immutable tag'
-Assert-Match $recoveryWorkflow '\.head_sha == \$sha.*?\.head_branch == \$tag.*?\.conclusion == "failure"' 'release recovery is not bound to the failed publication run and tag commit'
-Assert-Match $recoveryWorkflow 'required_success_steps[\s\S]*?Docker Scout fixable severity gate[\s\S]*?Verify the keyless signature identity[\s\S]*?GitHub provenance attestation.*?"failure"' 'release recovery does not prove the original protected jobs reached the narrow expected failure'
-Assert-Match $recoveryWorkflow 'name:\s*resolved-release-inputs[\s\S]*?run-id:\s*\$\{\{ inputs\.source_run_id \}\}' 'release recovery does not reuse the original resolved dependency evidence'
-Assert-Match $recoveryWorkflow 'GH_TOKEN:\s*\$\{\{ github\.token \}\}[\s\S]*?gh attestation verify' 'release recovery provenance verification is not authenticated'
-Assert-Match $recoveryWorkflow '--certificate-identity\s+"https://github\.com/\$\{GITHUB_REPOSITORY\}/\.github/workflows/container-release\.yml@refs/tags/\$RELEASE_TAG"' 'release recovery does not verify the original tag-bound signing identity'
-Assert-Match $recoveryWorkflow 'org\.opencontainers\.image\.revision' 'release recovery does not verify the published source revision label'
-Assert-Match $recoveryWorkflow 'trivy image --platform linux/amd64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 1' 'release recovery does not block every known amd64 project-image vulnerability'
-Assert-Match $recoveryWorkflow 'trivy image --platform linux/arm64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 1' 'release recovery does not block every known arm64 project-image vulnerability'
-Assert-Match $recoveryWorkflow 'Require zero known project-image vulnerabilities in Docker Scout[\s\S]*?only-severities:\s*critical,high,medium,low,unspecified[\s\S]*?exit-code:\s*true' 'release recovery Docker Scout gate does not block every known project-image severity'
-Assert-Match $recoveryWorkflow 'verify_stack jscc-release-empty.*false 0 0' 'release recovery lacks the empty/local-only runtime smoke test'
-Assert-Match $recoveryWorkflow 'verify_stack jscc-release-demo.*true 1 3' 'release recovery lacks the demo/connected runtime smoke test'
-Assert-Match $recoveryWorkflow 'Expected 34 successful migrations' 'release recovery does not verify the complete schema'
-Assert-Match $recoveryWorkflow 'Attest the recovery-verified release bundle' 'release recovery does not attest the accepted bundle'
-Assert-NotMatch $recoveryWorkflow 'docker/build-push-action|push:\s*true|cosign sign --yes' 'release recovery must never rebuild, push, or replace published images'
-
-$recoveryUses = [regex]::Matches($recoveryWorkflow, '(?m)^\s*-?\s*uses:\s*([^\s#]+)')
-if ($recoveryUses.Count -eq 0) { throw 'Container release workflow check failed: no recovery actions found' }
-foreach ($use in $recoveryUses) {
-    $reference = $use.Groups[1].Value
-    if ($reference -notmatch '@[0-9a-f]{40}$') {
-        throw "Container release workflow check failed: recovery action is not pinned to a full commit SHA: $reference"
-    }
-}
 
 $uses = [regex]::Matches($workflow, '(?m)^\s*-?\s*uses:\s*([^\s#]+)')
 if ($uses.Count -eq 0) { throw 'Container release workflow check failed: no actions found' }
@@ -151,7 +129,7 @@ Assert-Match $releaseTemplate 'APP_WORKSPACE_ROOT:\s*/workspace' 'release API wo
 Assert-Match $releaseTemplate 'APP_PREPARATION_WORKSPACE_FOLDER:\s*/workspace/preparation-workspace' 'release preparation inventory path is not fixed to its mounted folder'
 Assert-Match $releaseTemplate '/tmp:size=32m,mode=1777' 'release gateway tmpfs is too small for the supported request limit'
 Assert-Match (Get-Content -LiteralPath (Join-Path $workspace 'gateway/nginx.conf') -Raw) 'client_max_body_size\s+16m;' 'gateway upload request limit is not preserved'
-Assert-Match $documentation 'Those images and their source tag are not an accepted release and must be removed before the version is reused' 'guidance does not reject the vulnerable publication candidate'
+Assert-Match $documentation 'Those three Docker Hub tags and their GitHub source tag have been removed' 'guidance does not record rejection and removal of the vulnerable publication candidate'
 Assert-Match $documentation 'PolyForm Noncommercial License 1\.0\.0' 'license limitations are not explained'
 Assert-Match $documentation 'required reviewers' 'manual environment approval is not documented'
 

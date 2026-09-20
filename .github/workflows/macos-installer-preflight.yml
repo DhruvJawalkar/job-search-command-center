@@ -7,7 +7,9 @@ on:
       - main
     paths:
       - setup.sh
+      - .github/release/standalone/**
       - scripts/posix-host-smoke.sh
+      - docs/STANDALONE_DOCKER.md
       - docs/POSIX_HOST_SMOKE.md
       - .github/workflows/macos-installer-preflight.yml
 
@@ -59,19 +61,25 @@ jobs:
             }
           done
 
-          git ls-files --stage setup.sh scripts/posix-host-smoke.sh | grep -E '^100755 ' | grep -F 'setup.sh' >/dev/null
-          git ls-files --stage setup.sh scripts/posix-host-smoke.sh | grep -E '^100755 ' | grep -F 'scripts/posix-host-smoke.sh' >/dev/null
-          [[ -x setup.sh && -x scripts/posix-host-smoke.sh ]]
-          sh -n setup.sh scripts/posix-host-smoke.sh
-          if LC_ALL=C grep -n $'\r' setup.sh scripts/posix-host-smoke.sh; then
+          posix_scripts=(setup.sh scripts/posix-host-smoke.sh .github/release/standalone/setup.sh .github/release/standalone/jscc.sh)
+          for script in "${posix_scripts[@]}"; do
+            git ls-files --stage "$script" | grep -E '^100755 ' >/dev/null
+            [[ -x "$script" ]]
+          done
+          sh -n "${posix_scripts[@]}"
+          if LC_ALL=C grep -n $'\r' "${posix_scripts[@]}"; then
             echo 'POSIX setup scripts must use LF line endings.' >&2
             exit 1
           fi
 
           spaced_clone="$RUNNER_TEMP/Job Search Command Center"
           git clone --quiet --no-hardlinks "$GITHUB_WORKSPACE" "$spaced_clone"
-          [[ -x "$spaced_clone/setup.sh" && -x "$spaced_clone/scripts/posix-host-smoke.sh" ]]
-          sh -n "$spaced_clone/setup.sh" "$spaced_clone/scripts/posix-host-smoke.sh"
+          for script in "${posix_scripts[@]}"; do
+            [[ -x "$spaced_clone/$script" ]]
+          done
+          sh -n "$spaced_clone/setup.sh" "$spaced_clone/scripts/posix-host-smoke.sh" \
+            "$spaced_clone/.github/release/standalone/setup.sh" \
+            "$spaced_clone/.github/release/standalone/jscc.sh"
 
           stub="$RUNNER_TEMP/jscc-docker-stub"
           mkdir -p "$stub"
@@ -100,13 +108,41 @@ jobs:
           fi
           grep -F 'Docker Compose v2 is required.' "$RUNNER_TEMP/compose-missing.txt" >/dev/null
 
+          standalone_bundle="$RUNNER_TEMP/Standalone Bundle With Spaces"
+          standalone_workspace="$RUNNER_TEMP/Standalone Workspace With Spaces"
+          standalone_log="$RUNNER_TEMP/standalone-docker.log"
+          mkdir -p "$standalone_bundle/gateway"
+          cp "$spaced_clone/.github/release/standalone/setup.sh" \
+            "$spaced_clone/.github/release/standalone/jscc.sh" \
+            "$standalone_bundle/"
+          printf '%s\n' 'services: {}' > "$standalone_bundle/compose.yaml"
+          printf '%s\n' 'services: {}' > "$standalone_bundle/compose.connected.yaml"
+          printf '%s\n' 'events {}' > "$standalone_bundle/gateway/nginx.conf"
+          printf '%s\n' '{}' > "$standalone_bundle/release-manifest.json"
+          printf '%s\n' 'v1.0.0' > "$standalone_bundle/VERSION"
+          : > "$standalone_bundle/SHA256SUMS"
+
+          cat > "$stub/docker" <<EOF
+          #!/bin/sh
+          printf '%s\n' "\$*" >> "$standalone_log"
+          exit 0
+          EOF
+          chmod +x "$stub/docker"
+          PATH="$stub:$PATH" "$standalone_bundle/setup.sh" \
+            --folder "$standalone_workspace" --empty
+          grep -F 'APP_DISTRIBUTION_CHANNEL=standalone' "$standalone_workspace/.env" >/dev/null
+          grep -F 'APP_CODEX_GUIDANCE_ENABLED=false' "$standalone_workspace/.env" >/dev/null
+          grep -F 'compose ' "$standalone_log" | grep -F ' pull' >/dev/null
+          grep -F 'up --detach --pull never --no-build --wait' "$standalone_log" >/dev/null
+          [[ -x "$standalone_workspace/.jscc/jscc.sh" ]]
+
           docker_path="$(command -v docker || true)"
           docker_runtime=unavailable
           compose_runtime=unavailable
           if [ -n "$docker_path" ] && docker info >/dev/null 2>&1; then docker_runtime=available; fi
           if [ -n "$docker_path" ] && docker compose version >/dev/null 2>&1; then compose_runtime=available; fi
           cat > "$RUNNER_TEMP/macos-preflight.json" <<EOF
-          {"passed":true,"commit":"$GITHUB_SHA","runner":"$RUNNER_LABEL","architecture":"$actual_arch","dockerCli":"${docker_path:-unavailable}","dockerRuntime":"$docker_runtime","composeRuntime":"$compose_runtime","scope":"clone, executable bits, LF/POSIX parsing, path with spaces, prerequisite messages; no Docker Desktop runtime claim"}
+          {"passed":true,"commit":"$GITHUB_SHA","runner":"$RUNNER_LABEL","architecture":"$actual_arch","dockerCli":"${docker_path:-unavailable}","dockerRuntime":"$docker_runtime","composeRuntime":"$compose_runtime","scope":"source and standalone installers; clone, executable bits, LF/POSIX parsing, path with spaces, prerequisite messages, pull-only launch contract; no Docker Desktop runtime claim"}
           EOF
 
       - name: Preserve macOS preflight evidence

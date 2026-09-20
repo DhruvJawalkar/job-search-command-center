@@ -34,6 +34,9 @@ management:
         include: health,info
 
 app:
+  version: ${APP_VERSION:1.0.0}
+  distribution-channel: ${APP_DISTRIBUTION_CHANNEL:source}
+  codex-guidance-enabled: ${APP_CODEX_GUIDANCE_ENABLED:true}
   connected:
     enabled: ${APP_CONNECTED_ENABLED:false}
     broker-base-url: ${APP_EGRESS_BROKER_BASE_URL:}

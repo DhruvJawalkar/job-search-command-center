@@ -79,6 +79,21 @@ test("privacy controls preserve explicit records and expose the complete local p
   assert.match(source, /Assistant-derived results remain in memory for this backend session/);
 });
 
+test("runtime installation capabilities can hide Codex guidance without removing privacy disclosures", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /distributionChannel: string; codexGuidanceEnabled: boolean/);
+  assert.match(source, /distributionChannel: "source", codexGuidanceEnabled: true/);
+
+  const hints = source.match(/<CodexWorkflowHint enabled=\{installation\.codexGuidanceEnabled\} \/>/g) ?? [];
+  assert.equal(hints.length, 7);
+  assert.match(source, /function CodexWorkflowHint\(\{ enabled \}: \{ enabled: boolean \}\)/);
+  assert.match(source, /if \(!enabled\) return null/);
+  assert.match(source, /installation\.codexGuidanceEnabled && <a[^>]+>Open Codex workflow guide ↗<\/a>/);
+
+  assert.match(source, /Codex has separate controls/);
+  assert.match(source, /Codex remains a separate boundary/);
+});
+
 test("connected actions require a one-time transmission preview and preserve stateless reviewed saves", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const confirmation = await readFile(new URL("../app/privacy/TransmissionConfirmation.tsx", import.meta.url), "utf8");

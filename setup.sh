@@ -78,6 +78,7 @@ else
     printf '%s\n' 'POSTGRES_DB=job_search' 'POSTGRES_USER=job_search'
     printf 'POSTGRES_PASSWORD=%s\n' "$PASSWORD"
     printf 'APP_SEED_DEMO=%s\nAPP_DEMO_MODE=%s\n' "$DEMO" "$DEMO"
+    printf '%s\n' 'APP_VERSION=1.0.0' 'APP_DISTRIBUTION_CHANNEL=source' 'APP_CODEX_GUIDANCE_ENABLED=true'
     printf 'APP_API_HOST_PORT=%s\nAPP_PORTAL_HOST_PORT=%s\n' "$API_HOST_PORT" "$PORTAL_HOST_PORT"
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
