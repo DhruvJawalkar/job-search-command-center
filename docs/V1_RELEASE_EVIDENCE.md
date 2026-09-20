@@ -80,6 +80,15 @@ This record captures the local release-candidate gates initially completed on 20
 - `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are present as environment secrets. Their values are not stored in the repository or exposed to validation-only jobs.
 - Docker Hub immutable image-tag rules remain a post-acceptance action. They will be enabled only after the published digests pass the post-push security, signature, attestation, and runtime gates so a failed candidate can still be removed.
 
+## Rejected publication candidate and API remediation — 2026-09-20
+
+- Protected run `35441939677` published and signed three `v1.0.0` candidate image indexes, but stopped before final acceptance when GitHub provenance verification lacked `GH_TOKEN`. The authentication defect was corrected without weakening the release boundary.
+- A subsequent Docker Scout review of the API candidate found six known findings: two Java dependency findings, three Alpine `coreutils` findings, and one Alpine `nghttp2` finding. The candidate and its source tag were rejected; none of its signatures or attestations are presented as V1 release evidence.
+- The API now selects Jackson Databind `3.1.5` and Log4j API `2.25.5`. Its runtime image no longer installs `curl`, removes the unnecessary `coreutils` package, and uses BusyBox `wget` for the container healthcheck and local egress probe.
+- The locally rebuilt `linux/amd64` API image passed the full backend suite, a disposable 34-migration Compose runtime acceptance, package-absence assertions for `coreutils` and `nghttp2`, and a Docker Scout scan reporting zero known critical, high, medium, low, or unspecified vulnerabilities.
+- Both the primary publication workflow and its narrow recovery workflow now require Trivy and Docker Scout to report zero known project-image vulnerabilities at every severity, including unfixed and unspecified findings. The separate, explicitly reviewed upstream Nginx/PostgreSQL policy is unchanged.
+- Non-publishing [container validation run #7](https://github.com/DhruvJawalkar/job-search-command-center/actions/runs/35489614712) completed successfully: all 14 applicable jobs passed, including the remediated API image and the portal and broker images on both `linux/amd64` and `linux/arm64`. The protected publication-only jobs were correctly skipped.
+
 ## Clean-install gates
 
 Two independent local data folders were used so modes could not share a database.

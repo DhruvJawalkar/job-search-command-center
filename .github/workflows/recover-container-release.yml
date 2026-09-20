@@ -256,35 +256,34 @@ jobs:
             test "$(docker image inspect --format '{{ index .Config.Labels \"org.opencontainers.image.source\" }}' "$ref")" = "https://github.com/$GITHUB_REPOSITORY"
           done
 
-      - name: Re-run the exact amd64 vulnerability gate and generate an SPDX SBOM
+      - name: Re-run the exact amd64 zero-known-vulnerability gate and generate an SPDX SBOM
         shell: bash
         env:
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           PLATFORM_DIGEST: ${{ steps.image.outputs.amd64_digest }}
           COMPONENT: ${{ matrix.component }}
         run: |
-          trivy image --platform linux/amd64 --severity HIGH,CRITICAL --format json --output "trivy-recovery-$COMPONENT-amd64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
-          trivy image --platform linux/amd64 --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/amd64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json --output "trivy-recovery-$COMPONENT-amd64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/amd64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
           trivy image --platform linux/amd64 --format spdx-json --output "sbom-recovery-$COMPONENT-amd64.spdx.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
 
-      - name: Re-run the exact arm64 vulnerability gate and generate an SPDX SBOM
+      - name: Re-run the exact arm64 zero-known-vulnerability gate and generate an SPDX SBOM
         shell: bash
         env:
           IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
           PLATFORM_DIGEST: ${{ steps.image.outputs.arm64_digest }}
           COMPONENT: ${{ matrix.component }}
         run: |
-          trivy image --platform linux/arm64 --severity HIGH,CRITICAL --format json --output "trivy-recovery-$COMPONENT-arm64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
-          trivy image --platform linux/arm64 --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/arm64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --format json --output "trivy-recovery-$COMPONENT-arm64.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
+          trivy image --platform linux/arm64 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --exit-code 1 "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
           trivy image --platform linux/arm64 --format spdx-json --output "sbom-recovery-$COMPONENT-arm64.spdx.json" "$IMAGE_REPOSITORY@$PLATFORM_DIGEST"
 
-      - name: Re-run the independent Docker Scout fixable severity gate
+      - name: Require zero known project-image vulnerabilities in Docker Scout
         uses: docker/scout-action@7c6b6c3f7844478ace1ffd4e7aef649053d1f87d # v1.24.0
         with:
           command: cves
           image: ${{ steps.image.outputs.repository }}@${{ steps.image.outputs.index_digest }}
-          only-severities: critical,high
-          only-fixed: true
+          only-severities: critical,high,medium,low,unspecified
           exit-code: true
           dockerhub-user: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
